@@ -28,3 +28,6 @@ logs
 *.log
 logs/*
 *.tsbuildinfo
+
+# Local Netlify folder
+.netlify

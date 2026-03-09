@@ -13,6 +13,8 @@ import { defaultFilters, filterOptions, getMockSearchResponse, slotChips } from 
 import { cn } from "@/lib/utils";
 import type { FilterSlot, SearchFilters, SearchResponseViewModel, SearchStatus, SortOption } from "@/types/search";
 
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export default function HomePage() {
   const [query, setQuery] = useState("서울 AI 엔지니어 신입 대졸 채용공고 찾아줘");
   const [filters, setFilters] = useState<SearchFilters>(defaultFilters);
@@ -66,13 +68,29 @@ export default function HomePage() {
   };
 
   const handleChipSelect = (slot: FilterSlot, value: string) => {
-    setFilters((prev) => ({ ...prev, [slot]: value }));
+    const shouldToggleOff = filters[slot] === value;
+
+    setFilters((prev) => ({
+      ...prev,
+      [slot]: shouldToggleOff ? "전체" : value
+    }));
+
     setQuery((prev) => {
-      const trimmed = prev.trim();
-      if (trimmed.includes(value)) {
-        return trimmed;
+      const slotOptions = slotChips.find((group) => group.slot === slot)?.options ?? [];
+      let next = prev.trim();
+
+      slotOptions.forEach((option) => {
+        const pattern = new RegExp(`(^|\\s)${escapeRegExp(option)}(?=\\s|$)`, "g");
+        next = next.replace(pattern, " ");
+      });
+
+      next = next.replace(/\s+/g, " ").trim();
+
+      if (!shouldToggleOff) {
+        next = `${next} ${value}`.trim();
       }
-      return `${trimmed} ${value}`.trim();
+
+      return next;
     });
   };
 
@@ -107,6 +125,7 @@ export default function HomePage() {
       <div className="container space-y-8">
         <SearchHero
           query={query}
+          filters={filters}
           isLoading={status === "loading"}
           chips={slotChips}
           onQueryChange={setQuery}

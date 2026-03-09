@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import type { SearchHeroProps } from "@/types/search";
 import { HeroIllustration } from "./hero-illustration";
 
-export function SearchHero({ query, isLoading, chips, onQueryChange, onSubmit, onChipSelect }: SearchHeroProps) {
+export function SearchHero({ query, filters, isLoading, chips, onQueryChange, onSubmit, onChipSelect }: SearchHeroProps) {
   return (
     <section className="animate-fade-up">
       <div className="glass-panel relative overflow-hidden rounded-[1.5rem] p-6 sm:p-9">
@@ -62,7 +62,7 @@ export function SearchHero({ query, isLoading, chips, onQueryChange, onSubmit, o
                       onClick={() => onChipSelect(group.slot, option)}
                       className={cn(
                         "rounded-full border border-border bg-white/85 px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/50 hover:bg-primary/5",
-                        query.includes(option) && "border-primary/45 bg-primary/10 text-primary"
+                        filters[group.slot] === option && "border-primary/45 bg-primary/10 text-primary"
                       )}
                     >
                       {option}

@@ -52,6 +52,7 @@ export interface SearchResponseViewModel {
 
 export interface SearchHeroProps {
   query: string;
+  filters: SearchFilters;
   isLoading: boolean;
   chips: SlotChipGroup[];
   onQueryChange: (value: string) => void;
