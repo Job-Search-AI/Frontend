@@ -9,11 +9,54 @@ import { ResponseSummary } from "@/components/search/response-summary";
 import { SearchHero } from "@/components/search/search-hero";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { defaultFilters, filterOptions, getMockSearchResponse, slotChips } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
-import type { FilterSlot, SearchFilters, SearchResponseViewModel, SearchStatus, SortOption } from "@/types/search";
+import type {
+  FilterSlot,
+  SearchApiResponse,
+  SearchFilters,
+  SearchResponseViewModel,
+  SearchStatus,
+  SlotChipGroup,
+  SortOption
+} from "@/types/search";
 
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const defaultFilters: SearchFilters = {
+  region: "전체",
+  role: "전체",
+  experience: "전체",
+  education: "전체",
+  sort: "relevance"
+};
+
+const filterOptions: Record<FilterSlot, string[]> = {
+  region: ["전체", "서울", "경기", "인천", "원격"],
+  role: ["전체", "인공지능/머신러닝", "백엔드/서버개발", "데이터 엔지니어링", "MLOps"],
+  experience: ["전체", "신입", "주니어", "미들", "경력무관"],
+  education: ["전체", "고등학교졸업이상", "대학졸업(2,3년) 이상", "대학졸업(4년) 이상", "학력무관"]
+};
+
+const slotChips: SlotChipGroup[] = [
+  {
+    slot: "region",
+    label: "지역",
+    options: ["서울", "경기", "원격"]
+  },
+  {
+    slot: "role",
+    label: "직무",
+    options: ["인공지능/머신러닝", "백엔드/서버개발", "데이터 엔지니어링"]
+  },
+  {
+    slot: "experience",
+    label: "경력",
+    options: ["신입", "주니어", "경력무관"]
+  },
+  {
+    slot: "education",
+    label: "학력",
+    options: ["고등학교졸업이상", "대학졸업(4년) 이상", "학력무관"]
+  }
+];
 
 export default function HomePage() {
   const [query, setQuery] = useState("서울 AI 엔지니어 신입 대졸 채용공고 찾아줘");
@@ -26,7 +69,6 @@ export default function HomePage() {
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   const resultsRef = useRef<HTMLElement | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const jobs = response?.jobs ?? [];
   const selectedJob = useMemo(
@@ -34,30 +76,14 @@ export default function HomePage() {
     [jobs, selectedJobId]
   );
 
-  const executeSearch = () => {
+  const executeSearch = async () => {
     if (!query.trim()) {
       return;
-    }
-
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
     }
 
     setHasSearched(true);
     setStatus("loading");
     setResponse(null);
-
-    timerRef.current = setTimeout(() => {
-      const nextResponse = getMockSearchResponse(query, filters);
-      setResponse(nextResponse);
-      setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
-
-      if (nextResponse.status === "incomplete") {
-        setStatus("incomplete");
-        return;
-      }
-      setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
-    }, 650);
 
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({
@@ -65,6 +91,56 @@ export default function HomePage() {
         block: "start"
       });
     }, 120);
+
+    let userInput = query.trim();
+    const values = [filters.region, filters.role, filters.experience, filters.education];
+    values.forEach((value) => {
+      if (value !== "전체" && !userInput.includes(value)) {
+        userInput = `${userInput} ${value}`.trim();
+      }
+    });
+
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "https://jobsearchai-e63j.onrender.com";
+    const result = await fetch(`${baseUrl}/query`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        user_input: userInput
+      })
+    });
+    const data = (await result.json()) as SearchApiResponse;
+    const scores = data.retrieved_scores ?? [];
+    const list = data.retrieved_job_info_list ?? [];
+    const nextResponse: SearchResponseViewModel = {
+      status: data.status,
+      query: data.query,
+      message: data.message ?? "",
+      missing_fields: data.missing_fields ?? [],
+      normalized_entities: {
+        지역: data.normalized_entities?.지역 ?? null,
+        직무: data.normalized_entities?.직무 ?? null,
+        경력: data.normalized_entities?.경력 ?? null,
+        학력: data.normalized_entities?.학력 ?? null
+      },
+      retrieved_scores: scores,
+      user_response: data.user_response ?? "",
+      jobs: list.map((text, index) => ({
+        id: `job-${index + 1}`,
+        text,
+        score: scores[index] ?? null
+      }))
+    };
+    setResponse(nextResponse);
+    setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
+
+    if (nextResponse.status === "incomplete") {
+      setStatus("incomplete");
+      return;
+    }
+
+    setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
   };
 
   const handleChipSelect = (slot: FilterSlot, value: string) => {
@@ -80,7 +156,8 @@ export default function HomePage() {
       let next = prev.trim();
 
       slotOptions.forEach((option) => {
-        const pattern = new RegExp(`(^|\\s)${escapeRegExp(option)}(?=\\s|$)`, "g");
+        const escaped = option.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const pattern = new RegExp(`(^|\\s)${escaped}(?=\\s|$)`, "g");
         next = next.replace(pattern, " ");
       });
 
@@ -105,14 +182,6 @@ export default function HomePage() {
   const handleResetFilters = () => {
     setFilters(defaultFilters);
   };
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!selectedJob && detailSheetOpen) {

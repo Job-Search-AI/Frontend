@@ -18,20 +18,38 @@ export interface SlotChipGroup {
 
 export interface JobPosting {
   id: string;
-  title: string;
-  company: string;
-  location: string;
-  experience: string;
-  education: string;
-  employmentType: string;
-  score: number;
-  summary: string;
-  highlights: string[];
-  tags: string[];
-  benefits: string[];
-  deadline: string;
-  applicants: string;
-  companyInfo: string;
+  text: string;
+  score: number | null;
+}
+
+export interface SearchApiResponse {
+  user_input: string;
+  query: string;
+  status: "complete" | "incomplete";
+  message: string | null;
+  entities: {
+    지역: string;
+    직무: string;
+    경력: string;
+    학력: string;
+  } | null;
+  지역: string | null;
+  직무: string | null;
+  경력: string | null;
+  학력: string | null;
+  missing_fields: string[] | null;
+  normalized_entities: {
+    지역: string | null;
+    직무: string | null;
+    경력: string | null;
+    학력: string | null;
+  } | null;
+  url: string | null;
+  crawled_count: number | null;
+  job_info_list: string[] | null;
+  retrieved_job_info_list: string[] | null;
+  retrieved_scores: number[] | null;
+  user_response: string | null;
 }
 
 export interface SearchResponseViewModel {

@@ -1,4 +1,4 @@
-import type { JobPosting, SearchFilters, SearchResponseViewModel, SlotChipGroup } from "@/types/search";
+import type { SearchFilters, SlotChipGroup } from "@/types/search";
 
 export const defaultFilters: SearchFilters = {
   region: "전체",
@@ -38,7 +38,7 @@ export const slotChips: SlotChipGroup[] = [
   }
 ];
 
-const baseJobs: JobPosting[] = [
+const baseJobs = [
   {
     id: "job-01",
     title: "AI Engineer (신입/주니어)",
@@ -122,7 +122,7 @@ const parseDeadline = (deadline: string) => {
   return matched ? Number(matched[1]) : Number.MAX_SAFE_INTEGER;
 };
 
-const applySort = (jobs: JobPosting[], sort: SearchFilters["sort"]) => {
+const applySort = (jobs: typeof baseJobs, sort: SearchFilters["sort"]) => {
   if (sort === "latest") {
     return [...jobs].sort((a, b) => b.id.localeCompare(a.id));
   }
@@ -135,7 +135,7 @@ const applySort = (jobs: JobPosting[], sort: SearchFilters["sort"]) => {
 const includesAny = (value: string, patterns: string[]) =>
   patterns.some((pattern) => value.includes(pattern));
 
-export function getMockSearchResponse(query: string, filters: SearchFilters): SearchResponseViewModel {
+export function getMockSearchResponse(query: string, filters: SearchFilters) {
   const normalizedQuery = query.trim();
   const isMissingRegion = filters.region === "전체" && !includesAny(normalizedQuery, ["서울", "경기", "인천", "원격"]);
   const isMissingEducation =

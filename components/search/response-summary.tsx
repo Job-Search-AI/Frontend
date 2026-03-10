@@ -13,6 +13,7 @@ const SLOT_LABELS: Record<"지역" | "직무" | "경력" | "학력", string> = {
 
 export function ResponseSummary({ status, response }: ResponseSummaryProps) {
   const isIncomplete = status === "incomplete";
+  const text = response ? response.user_response || response.message : "";
 
   return (
     <Card
@@ -50,7 +51,7 @@ export function ResponseSummary({ status, response }: ResponseSummaryProps) {
 
         {status !== "loading" && response && (
           <>
-            <p className="leading-relaxed text-muted-foreground">{response.user_response}</p>
+            <p className="leading-relaxed text-muted-foreground">{text || "응답이 없습니다."}</p>
             <div className="flex flex-wrap gap-2">
               {(Object.entries(response.normalized_entities) as Array<[keyof typeof SLOT_LABELS, string | null]>).map(([slot, value]) => (
                 <Badge key={slot} variant={value ? "default" : "secondary"} className="bg-secondary/50 text-secondary-foreground">

@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, Building2, ChevronRight, MapPin } from "lucide-react";
+import { BriefcaseBusiness, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,36 +53,19 @@ export function JobList({ jobs, selectedJobId, isLoading, onSelectJob }: JobList
               >
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="line-clamp-1 text-sm font-bold text-foreground">{job.title}</h3>
-                    <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Building2 className="h-3.5 w-3.5" />
-                      {job.company}
-                    </p>
+                    <h3 className="line-clamp-1 text-sm font-bold text-foreground">검색 결과 {job.id.replace("job-", "")}</h3>
                   </div>
-                  <Badge variant="success" className="bg-success/12 text-success">
-                    {(job.score * 100).toFixed(0)}점
-                  </Badge>
+                  {job.score !== null && (
+                    <Badge variant="success" className="bg-success/12 text-success">
+                      {(job.score * 100).toFixed(0)}점
+                    </Badge>
+                  )}
                 </div>
 
-                <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="h-3.5 w-3.5" />
-                    {job.location}
-                  </span>
-                  <span>{job.experience}</span>
-                  <span>{job.education}</span>
-                </div>
-
-                <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{job.summary}</p>
+                <p className="line-clamp-4 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{job.text}</p>
 
                 <div className="mt-3 flex items-center justify-between">
-                  <div className="flex flex-wrap gap-1.5">
-                    {job.tags.slice(0, 3).map((tag) => (
-                      <Badge key={`${job.id}-${tag}`} variant="secondary" className="bg-secondary/55 text-secondary-foreground">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
+                  <span className="text-xs text-muted-foreground">상세 보기</span>
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </div>
               </button>
