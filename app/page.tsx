@@ -100,7 +100,7 @@ export default function HomePage() {
       }
     });
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "https://jobsearchai-e63j.onrender.com";
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
     const result = await fetch(`${baseUrl}/query`, {
       method: "POST",
       headers: {
