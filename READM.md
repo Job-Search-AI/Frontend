@@ -5,7 +5,7 @@
 ## 배포 링크
 
 - 프론트엔드(Netlify): [https://job-search-ai.netlify.app/](https://job-search-ai.netlify.app/)
-- 백엔드 API 주소는 보안상 문서에 노출하지 않습니다. (`NEXT_PUBLIC_API_URL`로 주입)
+- 백엔드 API 주소는 보안상 문서에 노출하지 않습니다. (`BACKEND_API_URL`을 서버에서 사용)
 
 ## 서비스 목적
 
@@ -65,7 +65,8 @@
 
 ### 5) 백엔드 API 연동
 
-- 요청 URL: `${NEXT_PUBLIC_API_URL}/query`
+- 프론트 요청 URL: `/api/query`
+- 서버 프록시 URL: `${BACKEND_API_URL}/query`
 - 메서드: `POST`
 - 헤더: `Content-Type: application/json`
 - Body:
@@ -198,10 +199,10 @@ npm run start
 백엔드 URL을 변경하려면 `.env.local`에 아래를 설정합니다.
 
 ```bash
-NEXT_PUBLIC_API_URL=https://your-api-domain.com
+BACKEND_API_URL=https://your-api-domain.com
 ```
 
-`NEXT_PUBLIC_API_URL`은 필수입니다. 미설정 시 검색 요청이 실패할 수 있습니다.
+`BACKEND_API_URL`은 필수입니다. 미설정 시 `/api/query` 요청이 실패할 수 있습니다.
 
 ## API 응답 타입(프론트 사용 기준)
 
