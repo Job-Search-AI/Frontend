@@ -65,8 +65,10 @@
 
 ### 5) 백엔드 API 연동
 
-- 프론트 요청 URL: `/api/query`
-- 서버 프록시 URL: `${BACKEND_API_URL}/query`
+- 기본 프론트 요청 URL: `/api/query/stream` (SSE)
+- 자동 폴백 요청 URL: `/api/query`
+- 서버 프록시 URL(스트림): `${BACKEND_API_URL}/query/stream`
+- 서버 프록시 URL(폴백): `${BACKEND_API_URL}/query`
 - 메서드: `POST`
 - 헤더: `Content-Type: application/json`
 - Body:
@@ -77,7 +79,15 @@
 }
 ```
 
-응답에서 아래 필드를 사용해 화면 ViewModel로 변환합니다.
+`/api/query/stream`은 `text/event-stream`으로 아래 이벤트를 보냅니다.
+
+- `step`: `{ "step": "analyzing", "label": "질문 분석 중" }`
+- `final`: `/query`와 동일한 최종 결과 JSON
+- `error`: `{ "message": "..." }`
+
+프론트는 스트림 네트워크/파싱 오류가 발생하면 `/api/query`로 1회 자동 폴백합니다.
+
+최종 응답(`final` 또는 `/api/query` 폴백 결과)에서 아래 필드를 사용해 화면 ViewModel로 변환합니다.
 
 - `status`
 - `query`
@@ -101,8 +111,10 @@
 세부 동작:
 
 - 검색 시작 시 `response`를 `null`로 초기화
+- `loading` 중에는 `step` 이벤트를 받아 현재 단계 라벨을 버튼/요약 카드에 표시
 - 결과 수신 시 첫 공고를 자동 선택
 - `incomplete`면 요약 카드에서 부족 슬롯을 강조 표시
+- 스트림 네트워크/파싱 오류 시 `/api/query`로 1회 자동 폴백
 - 검색 시작 후 결과 섹션으로 부드럽게 스크롤 이동
 
 ### 7) AI 응답 요약 카드
@@ -202,7 +214,7 @@ npm run start
 BACKEND_API_URL=https://your-api-domain.com
 ```
 
-`BACKEND_API_URL`은 필수입니다. 미설정 시 `/api/query` 요청이 실패할 수 있습니다.
+`BACKEND_API_URL`은 필수입니다. 미설정 시 `/api/query/stream`, `/api/query` 요청이 모두 실패할 수 있습니다.
 
 ## API 응답 타입(프론트 사용 기준)
 
@@ -211,6 +223,7 @@ BACKEND_API_URL=https://your-api-domain.com
 - `SearchApiResponse`: 백엔드 응답 원형
 - `SearchResponseViewModel`: 화면 렌더링용 정규화 모델
 - `SearchStatus`: `idle | loading | complete | incomplete | empty`
+- `StreamStep`: `analyzing | need_more_info | collecting | parsing | ranking | writing`
 - `SearchFilters`: 슬롯 필터 상태
 
 ## 프로젝트 구조
@@ -241,15 +254,15 @@ BACKEND_API_URL=https://your-api-domain.com
 ## 현재 코드 기준 참고 사항
 
 - `lib/mock-data.ts`는 과거/보조용 목데이터 로직이며, 현재 메인 검색 흐름은 `app/page.tsx`의 실 API `fetch`를 사용합니다.
-- `executeSearch`에는 네트워크 에러 처리(`try/catch`)가 아직 없어, API 실패 시 사용자 피드백 강화 여지가 있습니다.
+- 메인 검색은 `/api/query/stream` SSE를 우선 사용하고, 스트림 네트워크/파싱 오류 시 `/api/query`로 1회 자동 폴백합니다.
 - 필터 `sort` 값은 현재 요청 payload에 포함되지 않으므로, 백엔드 정렬 요구사항과 함께 추후 확장하는 것이 좋습니다.
 
 ## 주요 파일
 
-- 메인 오케스트레이션: [`app/page.tsx`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/app/page.tsx)
-- 검색 히어로/입력: [`components/search/search-hero.tsx`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/components/search/search-hero.tsx)
-- 필터 패널: [`components/search/filter-sidebar.tsx`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/components/search/filter-sidebar.tsx)
-- 응답 요약: [`components/search/response-summary.tsx`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/components/search/response-summary.tsx)
-- 결과 목록: [`components/search/job-list.tsx`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/components/search/job-list.tsx)
-- 상세 패널: [`components/search/job-detail-panel.tsx`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/components/search/job-detail-panel.tsx)
-- 타입 정의: [`types/search.ts`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/types/search.ts)
+- 메인 오케스트레이션: [`app/page.tsx`](/Users/eojin-kim/.codex/worktrees/81d6/frontend/app/page.tsx)
+- 검색 히어로/입력: [`components/search/search-hero.tsx`](/Users/eojin-kim/.codex/worktrees/81d6/frontend/components/search/search-hero.tsx)
+- 필터 패널: [`components/search/filter-sidebar.tsx`](/Users/eojin-kim/.codex/worktrees/81d6/frontend/components/search/filter-sidebar.tsx)
+- 응답 요약: [`components/search/response-summary.tsx`](/Users/eojin-kim/.codex/worktrees/81d6/frontend/components/search/response-summary.tsx)
+- 결과 목록: [`components/search/job-list.tsx`](/Users/eojin-kim/.codex/worktrees/81d6/frontend/components/search/job-list.tsx)
+- 상세 패널: [`components/search/job-detail-panel.tsx`](/Users/eojin-kim/.codex/worktrees/81d6/frontend/components/search/job-detail-panel.tsx)
+- 타입 정의: [`types/search.ts`](/Users/eojin-kim/.codex/worktrees/81d6/frontend/types/search.ts)

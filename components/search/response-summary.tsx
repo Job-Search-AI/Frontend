@@ -11,7 +11,8 @@ const SLOT_LABELS: Record<"지역" | "직무" | "경력" | "학력", string> = {
   학력: "학력"
 };
 
-export function ResponseSummary({ status, response }: ResponseSummaryProps) {
+export function ResponseSummary({ status, response, currentStep, currentStepLabel }: ResponseSummaryProps) {
+  const isLoading = status === "loading";
   const isIncomplete = status === "incomplete";
   const text = response ? response.user_response || response.message : "";
 
@@ -19,13 +20,15 @@ export function ResponseSummary({ status, response }: ResponseSummaryProps) {
     <Card
       className={cn(
         "mb-4 rounded-[1rem] border-white/70 bg-white/85 shadow-panel",
-        isIncomplete ? "border-warning/30" : "border-success/20"
+        isLoading ? "border-primary/20" : isIncomplete ? "border-warning/30" : "border-success/20"
       )}
     >
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isIncomplete ? "secondary" : "success"}>
-            {isIncomplete ? (
+          <Badge variant={isLoading || isIncomplete ? "secondary" : "success"}>
+            {isLoading ? (
+              "검색 진행 중"
+            ) : isIncomplete ? (
               <>
                 <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
                 정보 보완 필요
@@ -43,6 +46,9 @@ export function ResponseSummary({ status, response }: ResponseSummaryProps) {
       <CardContent className="space-y-3 text-sm">
         {status === "loading" && (
           <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              현재 단계: {currentStepLabel ?? (currentStep ? currentStep : "처리 중")}
+            </p>
             <div className="h-4 w-2/3 rounded bg-muted" />
             <div className="h-4 w-full rounded bg-muted" />
             <div className="h-4 w-5/6 rounded bg-muted" />
