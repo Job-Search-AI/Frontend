@@ -100,47 +100,73 @@ export default function HomePage() {
       }
     });
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-    const result = await fetch(`${baseUrl}/query`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        user_input: userInput
-      })
-    });
-    const data = (await result.json()) as SearchApiResponse;
-    const scores = data.retrieved_scores ?? [];
-    const list = data.retrieved_job_info_list ?? [];
-    const nextResponse: SearchResponseViewModel = {
-      status: data.status,
-      query: data.query,
-      message: data.message ?? "",
-      missing_fields: data.missing_fields ?? [],
-      normalized_entities: {
-        지역: data.normalized_entities?.지역 ?? null,
-        직무: data.normalized_entities?.직무 ?? null,
-        경력: data.normalized_entities?.경력 ?? null,
-        학력: data.normalized_entities?.학력 ?? null
-      },
-      retrieved_scores: scores,
-      user_response: data.user_response ?? "",
-      jobs: list.map((text, index) => ({
-        id: `job-${index + 1}`,
-        text,
-        score: scores[index] ?? null
-      }))
-    };
-    setResponse(nextResponse);
-    setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
+    try {
+      const result = await fetch("/api/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          user_input: userInput
+        })
+      });
+      const data = (await result.json()) as SearchApiResponse;
 
-    if (nextResponse.status === "incomplete") {
-      setStatus("incomplete");
-      return;
+      if (!result.ok) {
+        throw new Error(data.message ?? "검색 요청 처리에 실패했습니다.");
+      }
+
+      const scores = data.retrieved_scores ?? [];
+      const list = data.retrieved_job_info_list ?? [];
+      const nextResponse: SearchResponseViewModel = {
+        status: data.status,
+        query: data.query,
+        message: data.message ?? "",
+        missing_fields: data.missing_fields ?? [],
+        normalized_entities: {
+          지역: data.normalized_entities?.지역 ?? null,
+          직무: data.normalized_entities?.직무 ?? null,
+          경력: data.normalized_entities?.경력 ?? null,
+          학력: data.normalized_entities?.학력 ?? null
+        },
+        retrieved_scores: scores,
+        user_response: data.user_response ?? "",
+        jobs: list.map((text, index) => ({
+          id: `job-${index + 1}`,
+          text,
+          score: scores[index] ?? null
+        }))
+      };
+      setResponse(nextResponse);
+      setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
+
+      if (nextResponse.status === "incomplete") {
+        setStatus("incomplete");
+        return;
+      }
+
+      setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "검색 요청 처리에 실패했습니다.";
+      const failedResponse: SearchResponseViewModel = {
+        status: "complete",
+        query: userInput,
+        message,
+        missing_fields: [],
+        normalized_entities: {
+          지역: null,
+          직무: null,
+          경력: null,
+          학력: null
+        },
+        retrieved_scores: [],
+        user_response: "",
+        jobs: []
+      };
+      setResponse(failedResponse);
+      setSelectedJobId(null);
+      setStatus("empty");
     }
-
-    setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
   };
 
   const handleChipSelect = (slot: FilterSlot, value: string) => {
