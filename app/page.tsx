@@ -63,6 +63,7 @@ export default function HomePage() {
   const [filters, setFilters] = useState<SearchFilters>(defaultFilters);
   const [status, setStatus] = useState<SearchStatus>("idle");
   const [response, setResponse] = useState<SearchResponseViewModel | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
@@ -75,6 +76,7 @@ export default function HomePage() {
     () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
     [jobs, selectedJobId]
   );
+  const isError = status === "error";
 
   const executeSearch = async () => {
     if (!query.trim()) {
@@ -84,6 +86,7 @@ export default function HomePage() {
     setHasSearched(true);
     setStatus("loading");
     setResponse(null);
+    setErrorMessage(null);
 
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({
@@ -110,12 +113,34 @@ export default function HomePage() {
           user_input: userInput
         })
       });
-      const data = (await result.json()) as SearchApiResponse;
+      const raw = await result.text();
+      let parsed: unknown = null;
 
-      if (!result.ok) {
-        throw new Error(data.message ?? "검색 요청 처리에 실패했습니다.");
+      if (raw) {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = null;
+        }
       }
 
+      if (!result.ok) {
+        const messageFromPayload =
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "message" in parsed &&
+          typeof (parsed as { message?: unknown }).message === "string"
+            ? (parsed as { message: string }).message
+            : null;
+        const fallbackMessage = raw.trim() || `검색 API 요청이 실패했습니다. (HTTP ${result.status})`;
+        throw new Error(messageFromPayload ?? fallbackMessage);
+      }
+
+      if (typeof parsed !== "object" || parsed === null) {
+        throw new Error("검색 응답 형식이 올바르지 않습니다.");
+      }
+
+      const data = parsed as SearchApiResponse;
       const scores = data.retrieved_scores ?? [];
       const list = data.retrieved_job_info_list ?? [];
       const nextResponse: SearchResponseViewModel = {
@@ -138,6 +163,7 @@ export default function HomePage() {
         }))
       };
       setResponse(nextResponse);
+      setErrorMessage(null);
       setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
 
       if (nextResponse.status === "incomplete") {
@@ -148,24 +174,10 @@ export default function HomePage() {
       setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
     } catch (error) {
       const message = error instanceof Error ? error.message : "검색 요청 처리에 실패했습니다.";
-      const failedResponse: SearchResponseViewModel = {
-        status: "complete",
-        query: userInput,
-        message,
-        missing_fields: [],
-        normalized_entities: {
-          지역: null,
-          직무: null,
-          경력: null,
-          학력: null
-        },
-        retrieved_scores: [],
-        user_response: "",
-        jobs: []
-      };
-      setResponse(failedResponse);
+      setResponse(null);
       setSelectedJobId(null);
-      setStatus("empty");
+      setErrorMessage(message);
+      setStatus("error");
     }
   };
 
@@ -294,29 +306,40 @@ export default function HomePage() {
             </aside>
 
             <div className="min-w-0">
-              <ResponseSummary status={status} response={response} />
+              <ResponseSummary
+                status={status}
+                response={response}
+                errorMessage={errorMessage ?? undefined}
+                onRetry={executeSearch}
+              />
 
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-white/70 px-4 py-2.5 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1.5">
-                  <ListFilter className="h-3.5 w-3.5 text-primary" />
-                  쿼리: {response?.query ?? query}
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <LayoutPanelTop className="h-3.5 w-3.5 text-primary" />
-                  공고 {jobs.length}건
-                </span>
-              </div>
+              {!isError && (
+                <>
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-white/70 px-4 py-2.5 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <ListFilter className="h-3.5 w-3.5 text-primary" />
+                      쿼리: {response?.query ?? query}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <LayoutPanelTop className="h-3.5 w-3.5 text-primary" />
+                      공고 {jobs.length}건
+                    </span>
+                  </div>
 
-              <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} isLoading={status === "loading"} />
+                  <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} isLoading={status === "loading"} />
 
-              <div className="mt-4 hidden xl:hidden lg:block">
-                <JobDetailPanel job={selectedJob} />
-              </div>
+                  <div className="mt-4 hidden xl:hidden lg:block">
+                    <JobDetailPanel job={selectedJob} />
+                  </div>
+                </>
+              )}
             </div>
 
-            <aside className="hidden xl:block">
-              <JobDetailPanel job={selectedJob} />
-            </aside>
+            {!isError && (
+              <aside className="hidden xl:block">
+                <JobDetailPanel job={selectedJob} />
+              </aside>
+            )}
           </div>
         </section>
       </div>
