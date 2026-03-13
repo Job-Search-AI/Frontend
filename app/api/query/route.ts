@@ -4,7 +4,9 @@ interface QueryPayload {
   user_input: string;
 }
 
-const REQUEST_TIMEOUT_MS = 12_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
+const MIN_REQUEST_TIMEOUT_MS = 3_000;
+const MAX_REQUEST_TIMEOUT_MS = 25_000;
 
 const buildUpstreamUrl = (baseUrl: string) => {
   const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
@@ -41,6 +43,21 @@ const extractErrorMessage = (payload: unknown): string | null => {
   return null;
 };
 
+const resolveRequestTimeoutMs = () => {
+  const raw = process.env.BACKEND_API_TIMEOUT_MS;
+  if (!raw) {
+    return DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_REQUEST_TIMEOUT_MS;
+  }
+
+  const rounded = Math.floor(parsed);
+  return Math.min(MAX_REQUEST_TIMEOUT_MS, Math.max(MIN_REQUEST_TIMEOUT_MS, rounded));
+};
+
 export async function POST(request: NextRequest) {
   let payload: QueryPayload;
 
@@ -59,8 +76,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "BACKEND_API_URL is not configured." }, { status: 500 });
   }
 
+  const requestTimeoutMs = resolveRequestTimeoutMs();
   const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => abortController.abort(), requestTimeoutMs);
 
   let upstreamResponse: Response;
   try {
@@ -77,7 +95,18 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      return NextResponse.json({ message: `Backend API request timed out after ${REQUEST_TIMEOUT_MS / 1000}s.` }, { status: 504 });
+      return NextResponse.json(
+        {
+          message: `Backend API response exceeded ${requestTimeoutMs / 1000}s. Please retry shortly.`,
+          code: "BACKEND_TIMEOUT"
+        },
+        {
+          status: 503,
+          headers: {
+            "Retry-After": "5"
+          }
+        }
+      );
     }
 
     return NextResponse.json({ message: "Failed to connect to backend API." }, { status: 502 });

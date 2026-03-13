@@ -7,6 +7,8 @@ import type { SearchHeroProps } from "@/types/search";
 import { HeroIllustration } from "./hero-illustration";
 
 export function SearchHero({ query, filters, isLoading, chips, onQueryChange, onSubmit, onChipSelect }: SearchHeroProps) {
+  const isSubmitDisabled = isLoading || !query.trim();
+
   return (
     <section className="animate-fade-up">
       <div className="glass-panel relative overflow-hidden rounded-[1.5rem] p-6 sm:p-9">
@@ -38,12 +40,12 @@ export function SearchHero({ query, filters, isLoading, chips, onQueryChange, on
                     placeholder="예: 서울 AI 엔지니어 신입 대졸 채용공고 찾아줘"
                     className="h-12 rounded-lg border-white/80 bg-[#f8fcff] text-base shadow-none sm:text-sm"
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") {
+                      if (event.key === "Enter" && !isSubmitDisabled) {
                         onSubmit();
                       }
                     }}
                   />
-                  <Button onClick={onSubmit} size="lg" className="h-12 rounded-lg px-5">
+                  <Button onClick={onSubmit} size="lg" className="h-12 rounded-lg px-5" disabled={isSubmitDisabled}>
                     {isLoading ? "검색 중..." : "검색 시작"}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>

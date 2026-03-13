@@ -70,18 +70,27 @@ export default function HomePage() {
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   const resultsRef = useRef<HTMLElement | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const latestSearchRequestIdRef = useRef(0);
 
   const jobs = response?.jobs ?? [];
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
     [jobs, selectedJobId]
   );
+  const isLoading = status === "loading";
   const isError = status === "error";
 
   const executeSearch = async () => {
-    if (!query.trim()) {
+    if (!query.trim() || status === "loading") {
       return;
     }
+
+    const requestId = latestSearchRequestIdRef.current + 1;
+    latestSearchRequestIdRef.current = requestId;
+    searchAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    searchAbortControllerRef.current = abortController;
 
     setHasSearched(true);
     setStatus("loading");
@@ -109,11 +118,16 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json"
         },
+        signal: abortController.signal,
         body: JSON.stringify({
           user_input: userInput
         })
       });
       const raw = await result.text();
+      if (requestId !== latestSearchRequestIdRef.current) {
+        return;
+      }
+
       let parsed: unknown = null;
 
       if (raw) {
@@ -141,6 +155,10 @@ export default function HomePage() {
       }
 
       const data = parsed as SearchApiResponse;
+      if (data.status !== "complete" && data.status !== "incomplete") {
+        throw new Error(typeof data.message === "string" && data.message.trim() ? data.message : "검색 응답 상태가 올바르지 않습니다.");
+      }
+
       const scores = data.retrieved_scores ?? [];
       const list = data.retrieved_job_info_list ?? [];
       const nextResponse: SearchResponseViewModel = {
@@ -173,11 +191,22 @@ export default function HomePage() {
 
       setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+      if (requestId !== latestSearchRequestIdRef.current) {
+        return;
+      }
+
       const message = error instanceof Error ? error.message : "검색 요청 처리에 실패했습니다.";
       setResponse(null);
       setSelectedJobId(null);
       setErrorMessage(message);
       setStatus("error");
+    } finally {
+      if (searchAbortControllerRef.current === abortController) {
+        searchAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -226,6 +255,12 @@ export default function HomePage() {
       setDetailSheetOpen(false);
     }
   }, [detailSheetOpen, selectedJob]);
+
+  useEffect(() => {
+    return () => {
+      searchAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   return (
     <main className="pb-14 pt-6 sm:pt-8">
@@ -322,11 +357,11 @@ export default function HomePage() {
                     </span>
                     <span className="inline-flex items-center gap-1.5">
                       <LayoutPanelTop className="h-3.5 w-3.5 text-primary" />
-                      공고 {jobs.length}건
+                      {isLoading ? "결과 계산 중" : `공고 ${jobs.length}건`}
                     </span>
                   </div>
 
-                  <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} isLoading={status === "loading"} />
+                  <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} isLoading={isLoading} />
 
                   <div className="mt-4 hidden xl:hidden lg:block">
                     <JobDetailPanel job={selectedJob} />

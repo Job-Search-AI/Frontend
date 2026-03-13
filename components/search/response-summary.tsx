@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ const SLOT_LABELS: Record<"지역" | "직무" | "경력" | "학력", string> = {
 };
 
 export function ResponseSummary({ status, response, errorMessage, onRetry }: ResponseSummaryProps) {
+  const isLoading = status === "loading";
   const isIncomplete = status === "incomplete";
   const isError = status === "error";
   const text = response ? response.user_response || response.message : "";
@@ -21,13 +22,21 @@ export function ResponseSummary({ status, response, errorMessage, onRetry }: Res
     <Card
       className={cn(
         "mb-4 rounded-[1rem] border-white/70 bg-white/85 shadow-panel",
-        isError ? "border-warning/40" : isIncomplete ? "border-warning/30" : "border-success/20"
+        isError ? "border-warning/40" : isIncomplete ? "border-warning/30" : isLoading ? "border-primary/25" : "border-success/20"
       )}
     >
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isError || isIncomplete ? "secondary" : "success"} className={cn(isError && "bg-warning/20 text-foreground")}>
-            {isError ? (
+          <Badge
+            variant={isError || isIncomplete || isLoading ? "secondary" : "success"}
+            className={cn(isError && "bg-warning/20 text-foreground", isLoading && "bg-primary/10 text-primary")}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                검색 중
+              </>
+            ) : isError ? (
               <>
                 <TriangleAlert className="mr-1.5 h-3.5 w-3.5" />
                 검색 실패
