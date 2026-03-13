@@ -142,7 +142,17 @@ export default function HomePage() {
         return { response, raw, parsed };
       };
 
-      let { response: result, raw, parsed } = await requestQuery("/api/query");
+      let result: Response;
+      let raw: string;
+      let parsed: unknown;
+      try {
+        ({ response: result, raw, parsed } = await requestQuery("/api/query"));
+      } catch (proxyError) {
+        if (!directApiQueryUrl) {
+          throw proxyError;
+        }
+        ({ response: result, raw, parsed } = await requestQuery(directApiQueryUrl));
+      }
 
       const timeoutCode =
         typeof parsed === "object" &&
@@ -152,8 +162,17 @@ export default function HomePage() {
           ? (parsed as { code: string }).code
           : null;
 
-      if (result.status === 503 && timeoutCode === "BACKEND_TIMEOUT" && directApiQueryUrl) {
-        ({ response: result, raw, parsed } = await requestQuery(directApiQueryUrl));
+      const shouldFallbackToDirect =
+        Boolean(directApiQueryUrl) &&
+        (result.status === 504 || result.status === 503 || result.status === 502);
+
+      if (shouldFallbackToDirect && directApiQueryUrl) {
+        const isProxyTimeoutCode = result.status === 503 && timeoutCode === "BACKEND_TIMEOUT";
+        const isEdgeGatewayFailure = result.status === 504 || result.status === 502;
+        const fallbackReason = isProxyTimeoutCode || isEdgeGatewayFailure;
+        if (fallbackReason) {
+          ({ response: result, raw, parsed } = await requestQuery(directApiQueryUrl));
+        }
       }
 
       if (requestId !== latestSearchRequestIdRef.current) {
