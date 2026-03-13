@@ -58,6 +58,9 @@ const slotChips: SlotChipGroup[] = [
   }
 ];
 
+const directApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+const directApiQueryUrl = directApiBaseUrl ? `${directApiBaseUrl.replace(/\/$/, "")}/query` : null;
+
 export default function HomePage() {
   const [query, setQuery] = useState("서울 AI 엔지니어 신입 대졸 채용공고 찾아줘");
   const [filters, setFilters] = useState<SearchFilters>(defaultFilters);
@@ -113,29 +116,48 @@ export default function HomePage() {
     });
 
     try {
-      const result = await fetch("/api/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        signal: abortController.signal,
-        body: JSON.stringify({
-          user_input: userInput
-        })
-      });
-      const raw = await result.text();
-      if (requestId !== latestSearchRequestIdRef.current) {
-        return;
+      const requestBody = JSON.stringify({ user_input: userInput });
+      const requestHeaders = {
+        "Content-Type": "application/json"
+      };
+
+      const requestQuery = async (url: string) => {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: requestHeaders,
+          signal: abortController.signal,
+          body: requestBody
+        });
+        const raw = await response.text();
+
+        let parsed: unknown = null;
+        if (raw) {
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            parsed = null;
+          }
+        }
+
+        return { response, raw, parsed };
+      };
+
+      let { response: result, raw, parsed } = await requestQuery("/api/query");
+
+      const timeoutCode =
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "code" in parsed &&
+        typeof (parsed as { code?: unknown }).code === "string"
+          ? (parsed as { code: string }).code
+          : null;
+
+      if (result.status === 503 && timeoutCode === "BACKEND_TIMEOUT" && directApiQueryUrl) {
+        ({ response: result, raw, parsed } = await requestQuery(directApiQueryUrl));
       }
 
-      let parsed: unknown = null;
-
-      if (raw) {
-        try {
-          parsed = JSON.parse(raw);
-        } catch {
-          parsed = null;
-        }
+      if (requestId !== latestSearchRequestIdRef.current) {
+        return;
       }
 
       if (!result.ok) {
