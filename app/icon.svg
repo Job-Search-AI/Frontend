@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI Job Search">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0ea5c6" />
+      <stop offset="1" stop-color="#0c4a6e" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)" />
+  <path d="M20 46V18h9c8 0 13 5 13 12s-5 12-13 12h-4v4h-5Zm5-9h4c4.7 0 8-2.5 8-7s-3.3-7-8-7h-4v14Z" fill="#f8fafc" />
+  <circle cx="47" cy="43" r="6" fill="#facc15" />
+  <path d="M50.8 46.7 56 52" stroke="#facc15" stroke-width="3" stroke-linecap="round" />
+</svg>

@@ -1,5 +1,5 @@
 export type SortOption = "relevance" | "latest" | "deadline";
-export type SearchStatus = "idle" | "loading" | "complete" | "incomplete" | "empty";
+export type SearchStatus = "idle" | "loading" | "complete" | "incomplete" | "empty" | "error";
 export type FilterSlot = "region" | "role" | "experience" | "education";
 
 export interface SearchFilters {
@@ -100,4 +100,6 @@ export interface JobDetailPanelProps {
 export interface ResponseSummaryProps {
   status: SearchStatus;
   response: SearchResponseViewModel | null;
+  errorMessage?: string;
+  onRetry?: () => void;
 }

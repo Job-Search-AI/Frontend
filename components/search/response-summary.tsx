@@ -1,5 +1,6 @@
-import { AlertCircle, CheckCircle2, Sparkles } from "lucide-react";
+import { AlertCircle, CheckCircle2, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { ResponseSummaryProps } from "@/types/search";
@@ -11,21 +12,27 @@ const SLOT_LABELS: Record<"지역" | "직무" | "경력" | "학력", string> = {
   학력: "학력"
 };
 
-export function ResponseSummary({ status, response }: ResponseSummaryProps) {
+export function ResponseSummary({ status, response, errorMessage, onRetry }: ResponseSummaryProps) {
   const isIncomplete = status === "incomplete";
+  const isError = status === "error";
   const text = response ? response.user_response || response.message : "";
 
   return (
     <Card
       className={cn(
         "mb-4 rounded-[1rem] border-white/70 bg-white/85 shadow-panel",
-        isIncomplete ? "border-warning/30" : "border-success/20"
+        isError ? "border-warning/40" : isIncomplete ? "border-warning/30" : "border-success/20"
       )}
     >
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isIncomplete ? "secondary" : "success"}>
-            {isIncomplete ? (
+          <Badge variant={isError || isIncomplete ? "secondary" : "success"} className={cn(isError && "bg-warning/20 text-foreground")}>
+            {isError ? (
+              <>
+                <TriangleAlert className="mr-1.5 h-3.5 w-3.5" />
+                검색 실패
+              </>
+            ) : isIncomplete ? (
               <>
                 <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
                 정보 보완 필요
@@ -49,7 +56,22 @@ export function ResponseSummary({ status, response }: ResponseSummaryProps) {
           </div>
         )}
 
-        {status !== "loading" && response && (
+        {isError && (
+          <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-3">
+            <p className="text-sm font-semibold text-foreground">검색 요청을 처리하지 못했습니다.</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              {errorMessage ?? "잠시 후 다시 시도하거나 검색어를 조정해 주세요."}
+            </p>
+            {onRetry && (
+              <Button type="button" variant="outline" size="sm" className="mt-3 bg-white" onClick={onRetry}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                재시도
+              </Button>
+            )}
+          </div>
+        )}
+
+        {status !== "loading" && !isError && response && (
           <>
             <p className="leading-relaxed text-muted-foreground">{text || "응답이 없습니다."}</p>
             <div className="flex flex-wrap gap-2">
