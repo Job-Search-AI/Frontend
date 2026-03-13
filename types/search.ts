@@ -1,6 +1,7 @@
 export type SortOption = "relevance" | "latest" | "deadline";
 export type SearchStatus = "idle" | "loading" | "complete" | "incomplete" | "empty" | "error";
 export type FilterSlot = "region" | "role" | "experience" | "education";
+export type AsyncJobStatus = "queued" | "running" | "done" | "failed";
 
 export interface SearchFilters {
   region: string;
@@ -51,6 +52,30 @@ export interface SearchApiResponse {
   retrieved_scores: number[] | null;
   user_response: string | null;
 }
+
+export interface AsyncJobSubmitResponse {
+  jobId: string;
+  status: Extract<AsyncJobStatus, "queued" | "running">;
+}
+
+export interface AsyncJobQueuedResponse {
+  jobId: string;
+  status: Extract<AsyncJobStatus, "queued" | "running">;
+}
+
+export interface AsyncJobDoneResponse {
+  jobId: string;
+  status: "done";
+  result: SearchApiResponse;
+}
+
+export interface AsyncJobFailedResponse {
+  jobId: string;
+  status: "failed";
+  message: string;
+}
+
+export type AsyncJobResponse = AsyncJobQueuedResponse | AsyncJobDoneResponse | AsyncJobFailedResponse;
 
 export interface SearchResponseViewModel {
   status: Extract<SearchStatus, "complete" | "incomplete">;

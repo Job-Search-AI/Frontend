@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import type {
+  AsyncJobStatus,
   FilterSlot,
   SearchApiResponse,
   SearchFilters,
@@ -58,8 +59,63 @@ const slotChips: SlotChipGroup[] = [
   }
 ];
 
+const POLL_INTERVAL_MS = 2_000;
+const POLL_TIMEOUT_MS = 180_000;
+
 const directApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-const directApiQueryUrl = directApiBaseUrl ? `${directApiBaseUrl.replace(/\/$/, "")}/query` : null;
+const directApiJobSubmitUrl = directApiBaseUrl ? `${directApiBaseUrl.replace(/\/$/, "")}/query/jobs` : null;
+const buildDirectApiJobPollUrl = (jobId: string) =>
+  directApiBaseUrl ? `${directApiBaseUrl.replace(/\/$/, "")}/query/jobs/${encodeURIComponent(jobId)}` : null;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+const extractErrorMessage = (payload: unknown): string | null => {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  const keys = ["message", "error", "detail"] as const;
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+};
+
+const isAsyncStatus = (value: unknown): value is AsyncJobStatus =>
+  value === "queued" || value === "running" || value === "done" || value === "failed";
+
+const shouldFallbackStatus = (status: number) => status === 502 || status === 503 || status === 504;
+
+const createAbortError = () => {
+  const error = new Error("Aborted");
+  error.name = "AbortError";
+  return error;
+};
+
+const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      window.clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
+      reject(createAbortError());
+    };
+
+    signal.addEventListener("abort", onAbort);
+  });
 
 export default function HomePage() {
   const [query, setQuery] = useState("서울 AI 엔지니어 신입 대졸 채용공고 찾아줘");
@@ -116,17 +172,15 @@ export default function HomePage() {
     });
 
     try {
-      const requestBody = JSON.stringify({ user_input: userInput });
-      const requestHeaders = {
+      const headers = {
         "Content-Type": "application/json"
       };
+      const body = JSON.stringify({ user_input: userInput });
 
-      const requestQuery = async (url: string) => {
+      const requestJson = async (url: string, init: RequestInit) => {
         const response = await fetch(url, {
-          method: "POST",
-          headers: requestHeaders,
           signal: abortController.signal,
-          body: requestBody
+          ...init
         });
         const raw = await response.text();
 
@@ -142,95 +196,142 @@ export default function HomePage() {
         return { response, raw, parsed };
       };
 
-      let result: Response;
-      let raw: string;
-      let parsed: unknown;
-      try {
-        ({ response: result, raw, parsed } = await requestQuery("/api/query"));
-      } catch (proxyError) {
-        if (!directApiQueryUrl) {
-          throw proxyError;
+      const requestWithFallback = async (proxyUrl: string, directUrl: string | null, init: RequestInit) => {
+        let proxyResult: { response: Response; raw: string; parsed: unknown };
+        try {
+          proxyResult = await requestJson(proxyUrl, init);
+        } catch (error) {
+          if (!directUrl) {
+            throw error;
+          }
+          return requestJson(directUrl, init);
         }
-        ({ response: result, raw, parsed } = await requestQuery(directApiQueryUrl));
-      }
 
-      const timeoutCode =
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "code" in parsed &&
-        typeof (parsed as { code?: unknown }).code === "string"
-          ? (parsed as { code: string }).code
-          : null;
-
-      const shouldFallbackToDirect =
-        Boolean(directApiQueryUrl) &&
-        (result.status === 504 || result.status === 503 || result.status === 502);
-
-      if (shouldFallbackToDirect && directApiQueryUrl) {
-        const isProxyTimeoutCode = result.status === 503 && timeoutCode === "BACKEND_TIMEOUT";
-        const isEdgeGatewayFailure = result.status === 504 || result.status === 502;
-        const fallbackReason = isProxyTimeoutCode || isEdgeGatewayFailure;
-        if (fallbackReason) {
-          ({ response: result, raw, parsed } = await requestQuery(directApiQueryUrl));
+        if (directUrl && shouldFallbackStatus(proxyResult.response.status)) {
+          return requestJson(directUrl, init);
         }
-      }
 
+        return proxyResult;
+      };
+
+      let { response: submitResponse, raw: submitRaw, parsed: submitParsed } = await requestWithFallback("/api/query/jobs", directApiJobSubmitUrl, {
+        method: "POST",
+        headers,
+        body
+      });
       if (requestId !== latestSearchRequestIdRef.current) {
         return;
       }
 
-      if (!result.ok) {
-        const messageFromPayload =
-          typeof parsed === "object" &&
-          parsed !== null &&
-          "message" in parsed &&
-          typeof (parsed as { message?: unknown }).message === "string"
-            ? (parsed as { message: string }).message
-            : null;
-        const fallbackMessage = raw.trim() || `검색 API 요청이 실패했습니다. (HTTP ${result.status})`;
-        throw new Error(messageFromPayload ?? fallbackMessage);
+      if (!submitResponse.ok) {
+        const message = extractErrorMessage(submitParsed) ?? (submitRaw.trim() || `검색 요청 접수에 실패했습니다. (HTTP ${submitResponse.status})`);
+        throw new Error(message);
       }
 
-      if (typeof parsed !== "object" || parsed === null) {
-        throw new Error("검색 응답 형식이 올바르지 않습니다.");
+      if (!isRecord(submitParsed) || typeof submitParsed.jobId !== "string" || !isAsyncStatus(submitParsed.status)) {
+        throw new Error("검색 작업 접수 응답 형식이 올바르지 않습니다.");
       }
 
-      const data = parsed as SearchApiResponse;
-      if (data.status !== "complete" && data.status !== "incomplete") {
-        throw new Error(typeof data.message === "string" && data.message.trim() ? data.message : "검색 응답 상태가 올바르지 않습니다.");
+      const submitJobId = submitParsed.jobId as string;
+      const submitStatus = submitParsed.status as AsyncJobStatus;
+      if (submitStatus !== "queued" && submitStatus !== "running") {
+        throw new Error("검색 작업 상태가 올바르지 않습니다.");
       }
 
-      const scores = data.retrieved_scores ?? [];
-      const list = data.retrieved_job_info_list ?? [];
-      const nextResponse: SearchResponseViewModel = {
-        status: data.status,
-        query: data.query,
-        message: data.message ?? "",
-        missing_fields: data.missing_fields ?? [],
-        normalized_entities: {
-          지역: data.normalized_entities?.지역 ?? null,
-          직무: data.normalized_entities?.직무 ?? null,
-          경력: data.normalized_entities?.경력 ?? null,
-          학력: data.normalized_entities?.학력 ?? null
-        },
-        retrieved_scores: scores,
-        user_response: data.user_response ?? "",
-        jobs: list.map((text, index) => ({
-          id: `job-${index + 1}`,
-          text,
-          score: scores[index] ?? null
-        }))
-      };
-      setResponse(nextResponse);
-      setErrorMessage(null);
-      setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
+      const pollStartedAt = Date.now();
+      const encodedJobId = encodeURIComponent(submitJobId);
 
-      if (nextResponse.status === "incomplete") {
-        setStatus("incomplete");
+      while (true) {
+        if (requestId !== latestSearchRequestIdRef.current) {
+          return;
+        }
+
+        if (Date.now() - pollStartedAt > POLL_TIMEOUT_MS) {
+          throw new Error("검색 처리 시간이 3분을 초과했습니다. 잠시 후 다시 시도해 주세요.");
+        }
+
+        await sleep(POLL_INTERVAL_MS, abortController.signal);
+
+        const directPollUrl = buildDirectApiJobPollUrl(submitJobId);
+        const { response: pollResponse, raw: pollRaw, parsed: pollParsed } = await requestWithFallback(
+          `/api/query/jobs/${encodedJobId}`,
+          directPollUrl,
+          {
+            method: "GET",
+            cache: "no-store"
+          }
+        );
+
+        if (requestId !== latestSearchRequestIdRef.current) {
+          return;
+        }
+
+        if (!pollResponse.ok) {
+          const message = extractErrorMessage(pollParsed) ?? (pollRaw.trim() || `검색 작업 조회에 실패했습니다. (HTTP ${pollResponse.status})`);
+          throw new Error(message);
+        }
+
+        if (!isRecord(pollParsed) || !isAsyncStatus(pollParsed.status)) {
+          throw new Error("검색 작업 조회 응답 형식이 올바르지 않습니다.");
+        }
+
+        const jobStatus = pollParsed.status as AsyncJobStatus;
+        if (jobStatus === "queued" || jobStatus === "running") {
+          continue;
+        }
+
+        if (jobStatus === "failed") {
+          const failedMessage = typeof pollParsed.message === "string" ? pollParsed.message : "검색 요청 처리에 실패했습니다.";
+          throw new Error(failedMessage);
+        }
+
+        if (jobStatus !== "done") {
+          throw new Error("검색 작업 상태가 올바르지 않습니다.");
+        }
+
+        const jobResult = pollParsed.result;
+        if (!isRecord(jobResult)) {
+          throw new Error("검색 결과 데이터 형식이 올바르지 않습니다.");
+        }
+
+        const data = jobResult as unknown as SearchApiResponse;
+        if (data.status !== "complete" && data.status !== "incomplete") {
+          throw new Error(typeof data.message === "string" && data.message.trim() ? data.message : "검색 응답 상태가 올바르지 않습니다.");
+        }
+
+        const scores = data.retrieved_scores ?? [];
+        const list = data.retrieved_job_info_list ?? [];
+        const nextResponse: SearchResponseViewModel = {
+          status: data.status,
+          query: data.query,
+          message: data.message ?? "",
+          missing_fields: data.missing_fields ?? [],
+          normalized_entities: {
+            지역: data.normalized_entities?.지역 ?? null,
+            직무: data.normalized_entities?.직무 ?? null,
+            경력: data.normalized_entities?.경력 ?? null,
+            학력: data.normalized_entities?.학력 ?? null
+          },
+          retrieved_scores: scores,
+          user_response: data.user_response ?? "",
+          jobs: list.map((text, index) => ({
+            id: `job-${index + 1}`,
+            text,
+            score: scores[index] ?? null
+          }))
+        };
+        setResponse(nextResponse);
+        setErrorMessage(null);
+        setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
+
+        if (nextResponse.status === "incomplete") {
+          setStatus("incomplete");
+          return;
+        }
+
+        setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
         return;
       }
-
-      setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         return;
