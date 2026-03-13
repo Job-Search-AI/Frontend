@@ -60,7 +60,7 @@ const slotChips: SlotChipGroup[] = [
 ];
 
 const POLL_INTERVAL_MS = 2_000;
-const POLL_TIMEOUT_MS = 180_000;
+const POLL_TIMEOUT_MS = 480_000;
 
 const directApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 const directApiJobSubmitUrl = directApiBaseUrl ? `${directApiBaseUrl.replace(/\/$/, "")}/query/jobs` : null;
@@ -238,16 +238,12 @@ export default function HomePage() {
         throw new Error("검색 작업 상태가 올바르지 않습니다.");
       }
 
-      const pollStartedAt = Date.now();
+      let runningStartedAt: number | null = submitStatus === "running" ? Date.now() : null;
       const encodedJobId = encodeURIComponent(submitJobId);
 
       while (true) {
         if (requestId !== latestSearchRequestIdRef.current) {
           return;
-        }
-
-        if (Date.now() - pollStartedAt > POLL_TIMEOUT_MS) {
-          throw new Error("검색 처리 시간이 3분을 초과했습니다. 잠시 후 다시 시도해 주세요.");
         }
 
         await sleep(POLL_INTERVAL_MS, abortController.signal);
@@ -276,7 +272,19 @@ export default function HomePage() {
         }
 
         const jobStatus = pollParsed.status as AsyncJobStatus;
-        if (jobStatus === "queued" || jobStatus === "running") {
+        if (jobStatus === "queued") {
+          continue;
+        }
+
+        if (jobStatus === "running") {
+          if (runningStartedAt === null) {
+            runningStartedAt = Date.now();
+          }
+
+          if (Date.now() - runningStartedAt > POLL_TIMEOUT_MS) {
+            throw new Error("검색 처리 시간이 8분을 초과했습니다. 잠시 후 다시 시도해 주세요.");
+          }
+
           continue;
         }
 
