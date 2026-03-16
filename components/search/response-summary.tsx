@@ -2,6 +2,8 @@ import { AlertCircle, CheckCircle2, RefreshCw, Sparkles, TriangleAlert } from "l
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { STREAM_STEP_ORDER, getStreamStepLabel } from "@/lib/stream-steps";
 import { cn } from "@/lib/utils";
 import type { ResponseSummaryProps } from "@/types/search";
 
@@ -12,26 +14,40 @@ const SLOT_LABELS: Record<"지역" | "직무" | "경력" | "학력", string> = {
   학력: "학력"
 };
 
-export function ResponseSummary({ status, response, errorMessage, onRetry }: ResponseSummaryProps) {
+export function ResponseSummary({
+  status,
+  response,
+  errorMessage,
+  onRetry,
+  currentStep,
+  currentStepLabel,
+  stepHistory
+}: ResponseSummaryProps) {
+  const isLoading = status === "loading";
   const isIncomplete = status === "incomplete";
   const isError = status === "error";
   const text = response ? response.user_response || response.message : "";
+  const activeLabel = currentStep ? getStreamStepLabel(currentStep) : "처리 중";
+  const resolvedLabel = currentStepLabel ?? activeLabel;
+  const currentStepOrder = currentStep ? STREAM_STEP_ORDER.indexOf(currentStep) + 1 : 1;
 
   return (
     <Card
       className={cn(
         "mb-4 rounded-[1rem] border-white/70 bg-white/85 shadow-panel",
-        isError ? "border-warning/40" : isIncomplete ? "border-warning/30" : "border-success/20"
+        isError ? "border-warning/40" : isLoading ? "border-primary/20" : isIncomplete ? "border-warning/30" : "border-success/20"
       )}
     >
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isError || isIncomplete ? "secondary" : "success"} className={cn(isError && "bg-warning/20 text-foreground")}>
+          <Badge variant={isError || isLoading || isIncomplete ? "secondary" : "success"} className={cn(isError && "bg-warning/20 text-foreground")}>
             {isError ? (
               <>
                 <TriangleAlert className="mr-1.5 h-3.5 w-3.5" />
                 검색 실패
               </>
+            ) : isLoading ? (
+              "검색 진행 중"
             ) : isIncomplete ? (
               <>
                 <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
@@ -49,10 +65,58 @@ export function ResponseSummary({ status, response, errorMessage, onRetry }: Res
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {status === "loading" && (
-          <div className="space-y-2">
-            <div className="h-4 w-2/3 rounded bg-muted" />
-            <div className="h-4 w-full rounded bg-muted" />
-            <div className="h-4 w-5/6 rounded bg-muted" />
+          <div className="space-y-3">
+            <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-muted-foreground">현재 단계: {resolvedLabel}</p>
+                <Badge variant="secondary" className="bg-white/80 text-primary">
+                  {currentStepOrder} / {STREAM_STEP_ORDER.length}
+                </Badge>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                {STREAM_STEP_ORDER.map((step) => {
+                  const isDone = step !== currentStep && stepHistory.includes(step);
+                  const isActive = step === currentStep;
+
+                  return (
+                    <div
+                      key={step}
+                      className={cn(
+                        "rounded-md border px-2.5 py-2 transition",
+                        isActive
+                          ? "border-primary/40 bg-white shadow-panel"
+                          : isDone
+                            ? "border-success/25 bg-success/10"
+                            : "border-border/70 bg-white/70"
+                      )}
+                    >
+                      <p
+                        className={cn(
+                          "inline-flex items-center gap-1.5 text-[11px] font-medium",
+                          isActive ? "text-primary" : isDone ? "text-success" : "text-muted-foreground"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            isActive ? "bg-primary animate-pulse" : isDone ? "bg-success" : "bg-muted-foreground/50"
+                          )}
+                        />
+                        {getStreamStepLabel(step)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="h-4 w-2/3 rounded bg-muted" />
+              <div className="h-4 w-full rounded bg-muted" />
+              <div className="h-4 w-5/6 rounded bg-muted" />
+            </div>
           </div>
         )}
 
