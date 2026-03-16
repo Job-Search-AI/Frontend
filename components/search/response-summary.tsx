@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { STREAM_STEP_ORDER, getStreamStepLabel } from "@/lib/stream-steps";
+import { JOB_STEP_ORDER, getJobStepLabel } from "@/lib/job-steps";
 import { cn } from "@/lib/utils";
 import type { ResponseSummaryProps } from "@/types/search";
 
@@ -27,9 +27,9 @@ export function ResponseSummary({
   const isIncomplete = status === "incomplete";
   const isError = status === "error";
   const text = response ? response.user_response || response.message : "";
-  const activeLabel = currentStep ? getStreamStepLabel(currentStep) : "처리 중";
+  const activeLabel = currentStep ? getJobStepLabel(currentStep) : "처리 중";
   const resolvedLabel = currentStepLabel ?? activeLabel;
-  const currentStepOrder = currentStep ? STREAM_STEP_ORDER.indexOf(currentStep) + 1 : 1;
+  const currentStepOrder = currentStep ? JOB_STEP_ORDER.indexOf(currentStep) + 1 : 0;
 
   return (
     <Card
@@ -70,11 +70,11 @@ export function ResponseSummary({
               <div className="mb-3 flex items-center justify-between gap-2">
                 <p className="text-xs font-medium text-muted-foreground">현재 단계: {resolvedLabel}</p>
                 <Badge variant="secondary" className="bg-white/80 text-primary">
-                  {currentStepOrder} / {STREAM_STEP_ORDER.length}
+                  {currentStepOrder} / {JOB_STEP_ORDER.length}
                 </Badge>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-                {STREAM_STEP_ORDER.map((step) => {
+                {JOB_STEP_ORDER.map((step) => {
                   const isDone = step !== currentStep && stepHistory.includes(step);
                   const isActive = step === currentStep;
 
@@ -102,7 +102,7 @@ export function ResponseSummary({
                             isActive ? "bg-primary animate-pulse" : isDone ? "bg-success" : "bg-muted-foreground/50"
                           )}
                         />
-                        {getStreamStepLabel(step)}
+                        {getJobStepLabel(step)}
                       </p>
                     </div>
                   );

@@ -1,16 +1,32 @@
-import { STREAM_STEP_LABELS } from "@/lib/stream-steps";
-import type { SearchApiResponse, StreamStep } from "@/types/search";
+import { JOB_STEP_LABELS } from "@/lib/job-steps";
+import type {
+  AsyncJobStatus,
+  SearchApiResponse,
+  SearchStatusResponse,
+  SearchStartResponse,
+  JobStep
+} from "@/types/search";
 
-export type LocalQueryMockScenario = "complete" | "incomplete" | "stream_error" | "stream_disconnect";
+export type LocalQueryMockScenario = "complete" | "incomplete" | "failed" | "slow";
 
-const LOCAL_QUERY_MOCK_SCENARIOS = new Set<LocalQueryMockScenario>([
-  "complete",
-  "incomplete",
-  "stream_error",
-  "stream_disconnect"
-]);
+interface LocalQueryJobState {
+  job_id: string;
+  user_input: string;
+  scenario: LocalQueryMockScenario;
+  status_checks: number;
+  created_at: number;
+}
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+type LocalQueryJobStore = Map<string, LocalQueryJobState>;
+
+const LOCAL_QUERY_MOCK_SCENARIOS = new Set<LocalQueryMockScenario>(["complete", "incomplete", "failed", "slow"]);
+
+const FAST_FLOW_STEPS: JobStep[] = ["collecting", "parsing", "ranking", "writing"];
+const SLOW_FLOW_STEPS: JobStep[] = ["analyzing", "collecting", "parsing", "ranking", "writing"];
+const SLOW_SCENARIO_DONE_AFTER_CHECKS = 75;
+const QUEUED_CHECKS_FOR_SLOW_SCENARIO = 3;
+const LOCAL_JOB_STORE_TTL_MS = 10 * 60 * 1000;
+const LOCAL_JOB_STORE_MAX_ENTRIES = 200;
 
 const isEnabledFlag = (value?: string | null) => /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
 
@@ -19,7 +35,8 @@ const parseScenario = (value?: string | null): LocalQueryMockScenario => {
     return "complete";
   }
 
-  return LOCAL_QUERY_MOCK_SCENARIOS.has(value as LocalQueryMockScenario) ? (value as LocalQueryMockScenario) : "complete";
+  const normalized = value.trim();
+  return LOCAL_QUERY_MOCK_SCENARIOS.has(normalized as LocalQueryMockScenario) ? (normalized as LocalQueryMockScenario) : "complete";
 };
 
 const guessNormalizedEntities = (userInput: string) => {
@@ -143,8 +160,77 @@ const toFinalScenario = (scenario: LocalQueryMockScenario): "complete" | "incomp
   return scenario === "incomplete" ? "incomplete" : "complete";
 };
 
-const toSseEventLine = (event: "step" | "final" | "error", data: unknown): string => {
-  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+const getFlowStep = (statusChecks: number, steps: JobStep[]): JobStep => {
+  const index = Math.min(Math.max(statusChecks - 1, 0), steps.length - 1);
+  return steps[index];
+};
+
+const toStepLabel = (step: JobStep): string => JOB_STEP_LABELS[step];
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __LOCAL_QUERY_JOB_STORE__: LocalQueryJobStore | undefined;
+}
+
+const getLocalJobStore = (): LocalQueryJobStore => {
+  if (!globalThis.__LOCAL_QUERY_JOB_STORE__) {
+    globalThis.__LOCAL_QUERY_JOB_STORE__ = new Map<string, LocalQueryJobState>();
+  }
+  return globalThis.__LOCAL_QUERY_JOB_STORE__;
+};
+
+const pruneLocalJobStore = () => {
+  const store = getLocalJobStore();
+  const now = Date.now();
+
+  store.forEach((job, jobId) => {
+    if (now - job.created_at > LOCAL_JOB_STORE_TTL_MS) {
+      store.delete(jobId);
+    }
+  });
+
+  if (store.size <= LOCAL_JOB_STORE_MAX_ENTRIES) {
+    return;
+  }
+
+  const entries = Array.from(store.entries()).sort((a, b) => a[1].created_at - b[1].created_at);
+  const overflow = entries.length - LOCAL_JOB_STORE_MAX_ENTRIES;
+  for (let index = 0; index < overflow; index += 1) {
+    const [jobId] = entries[index];
+    store.delete(jobId);
+  }
+};
+
+const createLocalJobId = () => {
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `local-job-${Date.now()}-${randomPart}`;
+};
+
+const toRunningEnvelope = (jobId: string, step: JobStep): SearchStatusResponse => {
+  return {
+    job_id: jobId,
+    status: "running",
+    step,
+    step_label: toStepLabel(step)
+  };
+};
+
+const toDoneEnvelope = (jobId: string, response: SearchApiResponse): SearchStatusResponse => {
+  return {
+    job_id: jobId,
+    status: "done",
+    step: "writing",
+    step_label: toStepLabel("writing"),
+    result: response
+  };
+};
+
+const toQueuedEnvelope = (jobId: string): SearchStatusResponse => {
+  return {
+    job_id: jobId,
+    status: "queued",
+    message: "작업 대기열 처리 중입니다."
+  };
 };
 
 export const getLocalQueryMockScenario = (): LocalQueryMockScenario => {
@@ -165,75 +251,84 @@ export const getLocalQueryFinalResponse = (userInput: string, scenario: LocalQue
   return buildCompleteResponse(userInput);
 };
 
-export const createLocalQueryStreamResponse = (userInput: string, scenario: LocalQueryMockScenario): Response => {
-  const encoder = new TextEncoder();
+export const createLocalQueryJobStartResponse = (userInput: string, scenario: LocalQueryMockScenario): SearchStartResponse => {
+  pruneLocalJobStore();
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const push = (event: "step" | "final" | "error", data: unknown) => {
-        controller.enqueue(encoder.encode(toSseEventLine(event, data)));
+  const jobId = createLocalJobId();
+  const jobState: LocalQueryJobState = {
+    job_id: jobId,
+    user_input: userInput,
+    scenario,
+    status_checks: 0,
+    created_at: Date.now()
+  };
+  getLocalJobStore().set(jobId, jobState);
+
+  if (scenario === "slow") {
+    return toQueuedEnvelope(jobId);
+  }
+
+  return {
+    job_id: jobId,
+    status: "running",
+    step: "analyzing",
+    step_label: toStepLabel("analyzing")
+  };
+};
+
+export const getLocalQueryJobStatusResponse = (jobId: string): SearchStatusResponse | null => {
+  pruneLocalJobStore();
+
+  const store = getLocalJobStore();
+  const job = store.get(jobId);
+  if (!job) {
+    return null;
+  }
+
+  job.status_checks += 1;
+
+  if (job.scenario === "failed") {
+    if (job.status_checks >= 4) {
+      store.delete(jobId);
+      return {
+        job_id: jobId,
+        status: "failed",
+        message: "로컬 mock: 백엔드 작업이 실패했습니다."
       };
-
-      const pushStep = (step: StreamStep, label?: string) => {
-        push("step", {
-          step,
-          label: label ?? STREAM_STEP_LABELS[step]
-        });
-      };
-
-      const pushError = (message: string) => {
-        push("error", { message });
-      };
-
-      const run = async () => {
-        pushStep("analyzing");
-        await sleep(260);
-
-        if (scenario === "stream_error") {
-          pushError("로컬 mock: 스트리밍 처리 중 오류가 발생했습니다.");
-          controller.close();
-          return;
-        }
-
-        if (scenario === "stream_disconnect") {
-          pushStep("collecting");
-          await sleep(260);
-          controller.close();
-          return;
-        }
-
-        if (scenario === "incomplete") {
-          await sleep(260);
-          push("final", getLocalQueryFinalResponse(userInput, scenario));
-          controller.close();
-          return;
-        }
-
-        const progressiveSteps: StreamStep[] = ["collecting", "parsing", "ranking", "writing"];
-
-        for (const step of progressiveSteps) {
-          pushStep(step);
-          await sleep(220);
-        }
-
-        push("final", getLocalQueryFinalResponse(userInput, scenario));
-        controller.close();
-      };
-
-      run().catch((error) => {
-        const message = error instanceof Error ? error.message : "로컬 mock: 예상치 못한 스트림 오류가 발생했습니다.";
-        pushError(message);
-        controller.close();
-      });
     }
-  });
 
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive"
+    return toRunningEnvelope(jobId, getFlowStep(job.status_checks, FAST_FLOW_STEPS));
+  }
+
+  if (job.scenario === "incomplete") {
+    if (job.status_checks >= 3) {
+      store.delete(jobId);
+      return toDoneEnvelope(jobId, buildIncompleteResponse(job.user_input));
     }
-  });
+
+    return toRunningEnvelope(jobId, getFlowStep(job.status_checks, FAST_FLOW_STEPS));
+  }
+
+  if (job.scenario === "slow") {
+    if (job.status_checks <= QUEUED_CHECKS_FOR_SLOW_SCENARIO) {
+      return toQueuedEnvelope(jobId);
+    }
+
+    const runningChecks = job.status_checks - QUEUED_CHECKS_FOR_SLOW_SCENARIO;
+    if (runningChecks >= SLOW_SCENARIO_DONE_AFTER_CHECKS) {
+      store.delete(jobId);
+      return toDoneEnvelope(jobId, buildCompleteResponse(job.user_input));
+    }
+
+    const stepIndex = Math.min(Math.floor((runningChecks - 1) / 18), SLOW_FLOW_STEPS.length - 1);
+    const step = SLOW_FLOW_STEPS[stepIndex];
+    return toRunningEnvelope(jobId, step);
+  }
+
+  if (job.status_checks >= 5) {
+    store.delete(jobId);
+    return toDoneEnvelope(jobId, buildCompleteResponse(job.user_input));
+  }
+
+  return toRunningEnvelope(jobId, getFlowStep(job.status_checks, FAST_FLOW_STEPS));
 };
