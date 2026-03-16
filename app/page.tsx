@@ -9,6 +9,7 @@ import { ResponseSummary } from "@/components/search/response-summary";
 import { SearchHero } from "@/components/search/search-hero";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { getStreamStepLabel, isStreamStep } from "@/lib/stream-steps";
 import { cn } from "@/lib/utils";
 import type {
   AsyncJobStatus,
@@ -17,6 +18,7 @@ import type {
   SearchFilters,
   SearchResponseViewModel,
   SearchStatus,
+  StreamStep,
   SlotChipGroup,
   SortOption
 } from "@/types/search";
@@ -59,63 +61,94 @@ const slotChips: SlotChipGroup[] = [
   }
 ];
 
-const POLL_INTERVAL_MS = 2_000;
-const POLL_TIMEOUT_MS = 480_000;
+const buildUserInput = (query: string, filters: SearchFilters) => {
+  let userInput = query.trim();
+  const values = [filters.region, filters.role, filters.experience, filters.education];
+  values.forEach((value) => {
+    if (value !== "전체" && !userInput.includes(value)) {
+      userInput = `${userInput} ${value}`.trim();
+    }
+  });
+  return userInput;
+};
 
-const directApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-const directApiJobSubmitUrl = directApiBaseUrl ? `${directApiBaseUrl.replace(/\/$/, "")}/query/jobs` : null;
-const buildDirectApiJobPollUrl = (jobId: string) =>
-  directApiBaseUrl ? `${directApiBaseUrl.replace(/\/$/, "")}/query/jobs/${encodeURIComponent(jobId)}` : null;
+const toResponseViewModel = (data: SearchApiResponse): SearchResponseViewModel => {
+  const scores = data.retrieved_scores ?? [];
+  const list = data.retrieved_job_info_list ?? [];
+  return {
+    status: data.status,
+    query: data.query,
+    message: data.message ?? "",
+    missing_fields: data.missing_fields ?? [],
+    normalized_entities: {
+      지역: data.normalized_entities?.지역 ?? null,
+      직무: data.normalized_entities?.직무 ?? null,
+      경력: data.normalized_entities?.경력 ?? null,
+      학력: data.normalized_entities?.학력 ?? null
+    },
+    retrieved_scores: scores,
+    user_response: data.user_response ?? "",
+    jobs: list.map((text, index) => ({
+      id: `job-${index + 1}`,
+      text,
+      score: scores[index] ?? null
+    }))
+  };
+};
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const toFailedResponse = (userInput: string, message: string): SearchResponseViewModel => ({
+  status: "complete",
+  query: userInput,
+  message,
+  missing_fields: [],
+  normalized_entities: {
+    지역: null,
+    직무: null,
+    경력: null,
+    학력: null
+  },
+  retrieved_scores: [],
+  user_response: "",
+  jobs: []
+});
 
-const extractErrorMessage = (payload: unknown): string | null => {
-  if (!isRecord(payload)) {
+interface ParsedSseEvent {
+  event: string;
+  data: string;
+}
+
+const parseSseEventBlock = (rawBlock: string): ParsedSseEvent | null => {
+  const lines = rawBlock.split(/\r?\n/);
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r$/, "");
+    if (!line || line.startsWith(":")) {
+      continue;
+    }
+
+    if (line.startsWith("event:")) {
+      event = line.slice(6).trim();
+      continue;
+    }
+
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) {
     return null;
   }
 
-  const keys = ["message", "error", "detail"] as const;
-  for (const key of keys) {
-    const value = payload[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return null;
+  return {
+    event,
+    data: dataLines.join("\n")
+  };
 };
 
-const isAsyncStatus = (value: unknown): value is AsyncJobStatus =>
-  value === "queued" || value === "running" || value === "done" || value === "failed";
-
-const shouldFallbackStatus = (status: number) => status === 502 || status === 503 || status === 504;
-
-const createAbortError = () => {
-  const error = new Error("Aborted");
-  error.name = "AbortError";
-  return error;
-};
-
-const sleep = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve, reject) => {
-    if (signal.aborted) {
-      reject(createAbortError());
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-
-    const onAbort = () => {
-      window.clearTimeout(timeoutId);
-      signal.removeEventListener("abort", onAbort);
-      reject(createAbortError());
-    };
-
-    signal.addEventListener("abort", onAbort);
-  });
+const createStreamError = (message: string, skipFallback: boolean) => Object.assign(new Error(message), { skipFallback });
 
 export default function HomePage() {
   const [query, setQuery] = useState("서울 AI 엔지니어 신입 대졸 채용공고 찾아줘");
@@ -123,21 +156,23 @@ export default function HomePage() {
   const [status, setStatus] = useState<SearchStatus>("idle");
   const [response, setResponse] = useState<SearchResponseViewModel | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState<StreamStep | null>(null);
+  const [currentStepLabel, setCurrentStepLabel] = useState<string | null>(null);
+  const [stepHistory, setStepHistory] = useState<StreamStep[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   const resultsRef = useRef<HTMLElement | null>(null);
-  const searchAbortControllerRef = useRef<AbortController | null>(null);
-  const latestSearchRequestIdRef = useRef(0);
+  const requestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const jobs = response?.jobs ?? [];
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
     [jobs, selectedJobId]
   );
-  const isLoading = status === "loading";
   const isError = status === "error";
 
   const executeSearch = async () => {
@@ -145,16 +180,21 @@ export default function HomePage() {
       return;
     }
 
-    const requestId = latestSearchRequestIdRef.current + 1;
-    latestSearchRequestIdRef.current = requestId;
-    searchAbortControllerRef.current?.abort();
+    abortControllerRef.current?.abort();
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
     const abortController = new AbortController();
-    searchAbortControllerRef.current = abortController;
+    abortControllerRef.current = abortController;
+    const isActiveRequest = () => requestIdRef.current === requestId && !abortController.signal.aborted;
 
     setHasSearched(true);
     setStatus("loading");
     setResponse(null);
     setErrorMessage(null);
+    setSelectedJobId(null);
+    setCurrentStep("analyzing");
+    setCurrentStepLabel(getStreamStepLabel("analyzing"));
+    setStepHistory(["analyzing"]);
 
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({
@@ -163,199 +203,200 @@ export default function HomePage() {
       });
     }, 120);
 
-    let userInput = query.trim();
-    const values = [filters.region, filters.role, filters.experience, filters.education];
-    values.forEach((value) => {
-      if (value !== "전체" && !userInput.includes(value)) {
-        userInput = `${userInput} ${value}`.trim();
-      }
-    });
+    const userInput = buildUserInput(query, filters);
 
-    try {
-      const headers = {
-        "Content-Type": "application/json"
-      };
-      const body = JSON.stringify({ user_input: userInput });
-
-      const requestJson = async (url: string, init: RequestInit) => {
-        const response = await fetch(url, {
-          signal: abortController.signal,
-          ...init
-        });
-        const raw = await response.text();
-
-        let parsed: unknown = null;
-        if (raw) {
-          try {
-            parsed = JSON.parse(raw);
-          } catch {
-            parsed = null;
-          }
-        }
-
-        return { response, raw, parsed };
-      };
-
-      const requestWithFallback = async (proxyUrl: string, directUrl: string | null, init: RequestInit) => {
-        let proxyResult: { response: Response; raw: string; parsed: unknown };
-        try {
-          proxyResult = await requestJson(proxyUrl, init);
-        } catch (error) {
-          if (!directUrl) {
-            throw error;
-          }
-          return requestJson(directUrl, init);
-        }
-
-        if (directUrl && shouldFallbackStatus(proxyResult.response.status)) {
-          return requestJson(directUrl, init);
-        }
-
-        return proxyResult;
-      };
-
-      let { response: submitResponse, raw: submitRaw, parsed: submitParsed } = await requestWithFallback("/api/query/jobs", directApiJobSubmitUrl, {
-        method: "POST",
-        headers,
-        body
-      });
-      if (requestId !== latestSearchRequestIdRef.current) {
+    const applyFinalResponse = (data: SearchApiResponse) => {
+      if (!isActiveRequest()) {
         return;
       }
+      const nextResponse = toResponseViewModel(data);
+      setResponse(nextResponse);
+      setErrorMessage(null);
+      setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
+      setCurrentStep(null);
+      setCurrentStepLabel(null);
+      setStepHistory([]);
+      if (nextResponse.status === "incomplete") {
+        setStatus("incomplete");
+        return;
+      }
+      setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
+    };
 
-      if (!submitResponse.ok) {
-        const message = extractErrorMessage(submitParsed) ?? (submitRaw.trim() || `검색 요청 접수에 실패했습니다. (HTTP ${submitResponse.status})`);
+    const applyFailedResponse = (message: string) => {
+      if (!isActiveRequest()) {
+        return;
+      }
+      setResponse(null);
+      setErrorMessage(message);
+      setSelectedJobId(null);
+      setCurrentStep(null);
+      setCurrentStepLabel(null);
+      setStepHistory([]);
+      setStatus("error");
+    };
+
+    const fetchFallbackResult = async () => {
+      const result = await fetch("/api/query", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          user_input: userInput
+        }),
+        signal: abortController.signal
+      });
+
+      const data = (await result.json()) as SearchApiResponse | { message?: string };
+
+      if (!result.ok) {
+        const message = "message" in data && typeof data.message === "string" ? data.message : "검색 요청 처리에 실패했습니다.";
         throw new Error(message);
       }
 
-      if (!isRecord(submitParsed) || typeof submitParsed.jobId !== "string" || !isAsyncStatus(submitParsed.status)) {
-        throw new Error("검색 작업 접수 응답 형식이 올바르지 않습니다.");
+      return data as SearchApiResponse;
+    };
+
+    const parseStepEvent = (data: string) => {
+      const payload = JSON.parse(data) as { step?: string; label?: string };
+      if (!payload.step || !isStreamStep(payload.step)) {
+        return;
+      }
+      const nextStep = payload.step;
+
+      const nextLabel = payload.label?.trim() ? payload.label.trim() : getStreamStepLabel(nextStep);
+      if (!isActiveRequest()) {
+        return;
+      }
+      setCurrentStep(nextStep);
+      setCurrentStepLabel(nextLabel);
+      setStepHistory((prev) => (prev.includes(nextStep) ? prev : [...prev, nextStep]));
+    };
+
+    const parseErrorEvent = (data: string) => {
+      try {
+        const payload = JSON.parse(data) as { message?: string };
+        if (typeof payload.message === "string" && payload.message.trim()) {
+          return payload.message;
+        }
+      } catch {
+        return data || "스트리밍 처리 중 오류가 발생했습니다.";
+      }
+      return "스트리밍 처리 중 오류가 발생했습니다.";
+    };
+
+    const fetchStreamingResult = async () => {
+      const streamResponse = await fetch("/api/query/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          user_input: userInput
+        }),
+        signal: abortController.signal
+      });
+
+      const contentType = streamResponse.headers.get("content-type") ?? "";
+      const isSseResponse = contentType.includes("text/event-stream");
+
+      if (!isSseResponse && !streamResponse.ok) {
+        const fallbackMessage = "스트리밍 검색 요청 처리에 실패했습니다.";
+        if (contentType.includes("application/json")) {
+          const payload = (await streamResponse.json()) as { message?: string };
+          throw new Error(payload.message ?? fallbackMessage);
+        }
+
+        const text = await streamResponse.text();
+        throw new Error(text || fallbackMessage);
       }
 
-      const submitJobId = submitParsed.jobId as string;
-      const submitStatus = submitParsed.status as AsyncJobStatus;
-      if (submitStatus !== "queued" && submitStatus !== "running") {
-        throw new Error("검색 작업 상태가 올바르지 않습니다.");
+      if (!isSseResponse) {
+        throw new Error("스트리밍 응답 형식이 올바르지 않습니다.");
       }
 
-      let runningStartedAt: number | null = submitStatus === "running" ? Date.now() : null;
-      const encodedJobId = encodeURIComponent(submitJobId);
+      if (!streamResponse.body) {
+        throw new Error("스트리밍 응답 본문이 비어 있습니다.");
+      }
+
+      const reader = streamResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
-        if (requestId !== latestSearchRequestIdRef.current) {
-          return;
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
         }
 
-        await sleep(POLL_INTERVAL_MS, abortController.signal);
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split(/\r?\n\r?\n/);
+        buffer = blocks.pop() ?? "";
 
-        const directPollUrl = buildDirectApiJobPollUrl(submitJobId);
-        const { response: pollResponse, raw: pollRaw, parsed: pollParsed } = await requestWithFallback(
-          `/api/query/jobs/${encodedJobId}`,
-          directPollUrl,
-          {
-            method: "GET",
-            cache: "no-store"
-          }
-        );
-
-        if (requestId !== latestSearchRequestIdRef.current) {
-          return;
-        }
-
-        if (!pollResponse.ok) {
-          const message = extractErrorMessage(pollParsed) ?? (pollRaw.trim() || `검색 작업 조회에 실패했습니다. (HTTP ${pollResponse.status})`);
-          throw new Error(message);
-        }
-
-        if (!isRecord(pollParsed) || !isAsyncStatus(pollParsed.status)) {
-          throw new Error("검색 작업 조회 응답 형식이 올바르지 않습니다.");
-        }
-
-        const jobStatus = pollParsed.status as AsyncJobStatus;
-        if (jobStatus === "queued") {
-          continue;
-        }
-
-        if (jobStatus === "running") {
-          if (runningStartedAt === null) {
-            runningStartedAt = Date.now();
+        for (const block of blocks) {
+          const event = parseSseEventBlock(block);
+          if (!event) {
+            continue;
           }
 
-          if (Date.now() - runningStartedAt > POLL_TIMEOUT_MS) {
-            throw new Error("검색 처리 시간이 8분을 초과했습니다. 잠시 후 다시 시도해 주세요.");
+          if (event.event === "step") {
+            parseStepEvent(event.data);
+            continue;
           }
 
-          continue;
+          if (event.event === "error") {
+            throw createStreamError(parseErrorEvent(event.data), true);
+          }
+
+          if (event.event === "final") {
+            return JSON.parse(event.data) as SearchApiResponse;
+          }
         }
-
-        if (jobStatus === "failed") {
-          const failedMessage = typeof pollParsed.message === "string" ? pollParsed.message : "검색 요청 처리에 실패했습니다.";
-          throw new Error(failedMessage);
-        }
-
-        if (jobStatus !== "done") {
-          throw new Error("검색 작업 상태가 올바르지 않습니다.");
-        }
-
-        const jobResult = pollParsed.result;
-        if (!isRecord(jobResult)) {
-          throw new Error("검색 결과 데이터 형식이 올바르지 않습니다.");
-        }
-
-        const data = jobResult as unknown as SearchApiResponse;
-        if (data.status !== "complete" && data.status !== "incomplete") {
-          throw new Error(typeof data.message === "string" && data.message.trim() ? data.message : "검색 응답 상태가 올바르지 않습니다.");
-        }
-
-        const scores = data.retrieved_scores ?? [];
-        const list = data.retrieved_job_info_list ?? [];
-        const nextResponse: SearchResponseViewModel = {
-          status: data.status,
-          query: data.query,
-          message: data.message ?? "",
-          missing_fields: data.missing_fields ?? [],
-          normalized_entities: {
-            지역: data.normalized_entities?.지역 ?? null,
-            직무: data.normalized_entities?.직무 ?? null,
-            경력: data.normalized_entities?.경력 ?? null,
-            학력: data.normalized_entities?.학력 ?? null
-          },
-          retrieved_scores: scores,
-          user_response: data.user_response ?? "",
-          jobs: list.map((text, index) => ({
-            id: `job-${index + 1}`,
-            text,
-            score: scores[index] ?? null
-          }))
-        };
-        setResponse(nextResponse);
-        setErrorMessage(null);
-        setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
-
-        if (nextResponse.status === "incomplete") {
-          setStatus("incomplete");
-          return;
-        }
-
-        setStatus(nextResponse.jobs.length > 0 ? "complete" : "empty");
-        return;
       }
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        return;
+
+      const trailing = parseSseEventBlock(buffer);
+      if (trailing?.event === "final") {
+        return JSON.parse(trailing.data) as SearchApiResponse;
       }
-      if (requestId !== latestSearchRequestIdRef.current) {
+
+      throw new Error("스트림이 최종 결과 없이 종료되었습니다.");
+    };
+
+    try {
+      const streamData = await fetchStreamingResult();
+      applyFinalResponse(streamData);
+    } catch (streamError) {
+      if (abortController.signal.aborted || !isActiveRequest()) {
         return;
       }
 
-      const message = error instanceof Error ? error.message : "검색 요청 처리에 실패했습니다.";
-      setResponse(null);
-      setSelectedJobId(null);
-      setErrorMessage(message);
-      setStatus("error");
+      const skipFallback =
+        typeof streamError === "object" &&
+        streamError !== null &&
+        "skipFallback" in streamError &&
+        Boolean((streamError as { skipFallback?: boolean }).skipFallback);
+
+      if (skipFallback) {
+        const message = streamError instanceof Error ? streamError.message : "스트리밍 처리 중 오류가 발생했습니다.";
+        applyFailedResponse(message);
+        return;
+      }
+
+      try {
+        const fallbackData = await fetchFallbackResult();
+        applyFinalResponse(fallbackData);
+      } catch (fallbackError) {
+        if (abortController.signal.aborted || !isActiveRequest()) {
+          return;
+        }
+
+        const message = fallbackError instanceof Error ? fallbackError.message : "검색 요청 처리에 실패했습니다.";
+        applyFailedResponse(message);
+      }
     } finally {
-      if (searchAbortControllerRef.current === abortController) {
-        searchAbortControllerRef.current = null;
+      if (requestIdRef.current === requestId) {
+        abortControllerRef.current = null;
       }
     }
   };
@@ -408,7 +449,7 @@ export default function HomePage() {
 
   useEffect(() => {
     return () => {
-      searchAbortControllerRef.current?.abort();
+      abortControllerRef.current?.abort();
     };
   }, []);
 
@@ -419,6 +460,7 @@ export default function HomePage() {
           query={query}
           filters={filters}
           isLoading={status === "loading"}
+          loadingLabel={currentStepLabel}
           chips={slotChips}
           onQueryChange={setQuery}
           onSubmit={executeSearch}
@@ -496,6 +538,9 @@ export default function HomePage() {
                 response={response}
                 errorMessage={errorMessage ?? undefined}
                 onRetry={executeSearch}
+                currentStep={currentStep}
+                currentStepLabel={currentStepLabel}
+                stepHistory={stepHistory}
               />
 
               {!isError && (
@@ -507,11 +552,11 @@ export default function HomePage() {
                     </span>
                     <span className="inline-flex items-center gap-1.5">
                       <LayoutPanelTop className="h-3.5 w-3.5 text-primary" />
-                      {isLoading ? "결과 계산 중" : `공고 ${jobs.length}건`}
+                      공고 {jobs.length}건
                     </span>
                   </div>
 
-                  <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} isLoading={isLoading} />
+                  <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} isLoading={status === "loading"} />
 
                   <div className="mt-4 hidden xl:hidden lg:block">
                     <JobDetailPanel job={selectedJob} />

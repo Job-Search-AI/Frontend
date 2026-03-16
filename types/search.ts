@@ -1,7 +1,7 @@
 export type SortOption = "relevance" | "latest" | "deadline";
 export type SearchStatus = "idle" | "loading" | "complete" | "incomplete" | "empty" | "error";
 export type FilterSlot = "region" | "role" | "experience" | "education";
-export type AsyncJobStatus = "queued" | "running" | "done" | "failed";
+export type StreamStep = "analyzing" | "collecting" | "parsing" | "ranking" | "writing";
 
 export interface SearchFilters {
   region: string;
@@ -97,6 +97,7 @@ export interface SearchHeroProps {
   query: string;
   filters: SearchFilters;
   isLoading: boolean;
+  loadingLabel: string | null;
   chips: SlotChipGroup[];
   onQueryChange: (value: string) => void;
   onSubmit: () => void;
@@ -127,4 +128,7 @@ export interface ResponseSummaryProps {
   response: SearchResponseViewModel | null;
   errorMessage?: string;
   onRetry?: () => void;
+  currentStep: StreamStep | null;
+  currentStepLabel: string | null;
+  stepHistory: StreamStep[];
 }
