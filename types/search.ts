@@ -54,6 +54,18 @@ export interface SearchApiResponse {
   user_response: string | null;
 }
 
+export interface SearchJobEnvelope {
+  job_id: string;
+  status: AsyncJobStatus;
+  step?: StreamStep | null;
+  step_label?: string | null;
+  message?: string | null;
+  result?: SearchApiResponse | null;
+}
+
+export type SearchStartResponse = SearchJobEnvelope;
+export type SearchStatusResponse = SearchJobEnvelope;
+
 export interface SearchResponseViewModel {
   status: Extract<SearchStatus, "complete" | "incomplete">;
   query: string;

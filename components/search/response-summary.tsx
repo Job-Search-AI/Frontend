@@ -29,7 +29,7 @@ export function ResponseSummary({
   const text = response ? response.user_response || response.message : "";
   const activeLabel = currentStep ? getStreamStepLabel(currentStep) : "처리 중";
   const resolvedLabel = currentStepLabel ?? activeLabel;
-  const currentStepOrder = currentStep ? STREAM_STEP_ORDER.indexOf(currentStep) + 1 : 1;
+  const currentStepOrder = currentStep ? STREAM_STEP_ORDER.indexOf(currentStep) + 1 : 0;
 
   return (
     <Card

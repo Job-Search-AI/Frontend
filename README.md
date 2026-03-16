@@ -65,13 +65,13 @@
 
 ### 5) 백엔드 API 연동
 
-- 기본 프론트 요청 URL: `/api/query/stream` (SSE)
-- 자동 폴백 요청 URL: `/api/query`
-- 서버 프록시 URL(스트림): `${BACKEND_API_URL}/query/stream`
-- 서버 프록시 URL(폴백): `${BACKEND_API_URL}/query`
-- 메서드: `POST`
-- 헤더: `Content-Type: application/json`
-- Body:
+- 기본 프론트 시작 요청 URL: `/api/query/start`
+- 기본 프론트 상태 조회 URL: `/api/query/status?job_id=...`
+- 서버 프록시 URL(시작): `${BACKEND_API_URL}/query/jobs`
+- 서버 프록시 URL(상태 조회): `${BACKEND_API_URL}/query/jobs/{job_id}`
+- 시작 요청 메서드: `POST`
+- 시작 요청 헤더: `Content-Type: application/json`
+- 시작 요청 Body:
 
 ```json
 {
@@ -79,15 +79,22 @@
 }
 ```
 
-`/api/query/stream`은 `text/event-stream`으로 아래 이벤트를 보냅니다.
+`/api/query/start`, `/api/query/status` 응답 형식:
 
-- `step`: `{ "step": "analyzing", "label": "질문 분석 중" }`
-- `final`: `/query`와 동일한 최종 결과 JSON
-- `error`: `{ "message": "..." }`
+- `job_id`
+- `status`: `queued | running | done | failed`
+- `step` (옵션)
+- `step_label` (옵션)
+- `message` (옵션)
+- `result` (`status=done`일 때 최종 결과)
 
-프론트는 스트림 네트워크/파싱 오류가 발생하면 `/api/query`로 1회 자동 폴백합니다.
+프론트는 시작 요청 후 polling으로 상태를 조회합니다.
 
-최종 응답(`final` 또는 `/api/query` 폴백 결과)에서 아래 필드를 사용해 화면 ViewModel로 변환합니다.
+- 시작 후 30초 미만: 1초 간격
+- 30초 이후: 2초 간격
+- 최대 대기: 5분
+
+최종 응답(`status=done`의 `result`)에서 아래 필드를 사용해 화면 ViewModel로 변환합니다.
 
 - `status`
 - `query`
@@ -111,10 +118,11 @@
 세부 동작:
 
 - 검색 시작 시 `response`를 `null`로 초기화
-- `loading` 중에는 `step` 이벤트를 받아 현재 단계 라벨을 버튼/요약 카드에 표시
+- `loading` 중에는 job 상태(`queued/running`)를 조회하며 현재 단계 라벨을 버튼/요약 카드에 표시
 - 결과 수신 시 첫 공고를 자동 선택
 - `incomplete`면 요약 카드에서 부족 슬롯을 강조 표시
-- 스트림 네트워크/파싱 오류 시 `/api/query`로 1회 자동 폴백
+- `status=failed` 또는 상태 조회 오류 누적 시 에러 상태 전환
+- 최대 대기시간(5분) 초과 시 에러 상태 전환
 - 검색 시작 후 결과 섹션으로 부드럽게 스크롤 이동
 
 ### 7) AI 응답 요약 카드
@@ -222,32 +230,36 @@ BACKEND_API_URL=https://your-api-domain.com
 # 명시적 목 모드 활성화
 LOCAL_QUERY_MOCK=true
 
-# 시나리오 선택: complete | incomplete | stream_error | stream_disconnect
+# 시나리오 선택: complete | incomplete | failed | slow
 LOCAL_QUERY_MOCK_SCENARIO=complete
 ```
 
 동작 규칙:
 
-- `LOCAL_QUERY_MOCK=true`이면 `/api/query`, `/api/query/stream` 모두 로컬 목 데이터를 반환합니다.
+- `LOCAL_QUERY_MOCK=true`이면 `/api/query`, `/api/query/start`, `/api/query/status`가 로컬 목 데이터를 반환합니다.
 - `NODE_ENV=development`이고 `BACKEND_API_URL`이 비어 있으면 로컬 목 모드가 자동 활성화됩니다.
-- `stream_disconnect` 시나리오는 스트림이 `final` 없이 종료되어 프론트의 `/api/query` 1회 자동 폴백을 검증할 수 있습니다.
-- `stream_error` 시나리오는 SSE `error` 이벤트를 전송하며, 프론트는 폴백 없이 에러를 표시합니다.
+- `complete` 시나리오는 일반 완료 흐름(`running` → `done`)을 검증합니다.
+- `incomplete` 시나리오는 보완 필요 응답(`done.result.status=incomplete`)을 검증합니다.
+- `failed` 시나리오는 작업 실패 상태(`failed`)를 검증합니다.
+- `slow` 시나리오는 장시간 처리(`queued`/`running` 지속 후 `done`)를 검증합니다.
 
 ## 프론트 단독 검증 절차
 
 1. `.env.local` 없이 `npm run dev` 실행 또는 `LOCAL_QUERY_MOCK=true` 설정 후 실행
 2. 브라우저에서 검색 실행
-3. 로딩 중 단계 레일이 `step` 이벤트에 맞춰 업데이트되는지 확인
-4. `LOCAL_QUERY_MOCK_SCENARIO=stream_disconnect`로 재실행하여 `/api/query` 자동 폴백 렌더링 확인
+3. 로딩 중 단계 레일이 상태 조회(`queued/running`) 결과에 맞춰 업데이트되는지 확인
+4. `LOCAL_QUERY_MOCK_SCENARIO=slow`로 재실행하여 장시간 polling 완료 렌더링 확인
 5. `LOCAL_QUERY_MOCK_SCENARIO=incomplete`로 재실행하여 `missing_fields` 및 보완 안내 표시 확인
+6. `LOCAL_QUERY_MOCK_SCENARIO=failed`로 재실행하여 실패 메시지 렌더링 확인
 
 ## API 응답 타입(프론트 사용 기준)
 
 핵심 타입은 [`types/search.ts`](/Users/eojin-kim/.codex/worktrees/da5e/frontend/types/search.ts)에 정의되어 있습니다.
 
 - `SearchApiResponse`: 백엔드 응답 원형
+- `SearchJobEnvelope`: 비동기 job 상태/결과 응답
 - `SearchResponseViewModel`: 화면 렌더링용 정규화 모델
-- `SearchStatus`: `idle | loading | complete | incomplete | empty`
+- `SearchStatus`: `idle | loading | complete | incomplete | empty | error`
 - `StreamStep`: `analyzing | collecting | parsing | ranking | writing`
 - `SearchFilters`: 슬롯 필터 상태
 
@@ -279,7 +291,7 @@ LOCAL_QUERY_MOCK_SCENARIO=complete
 ## 현재 코드 기준 참고 사항
 
 - `lib/mock-data.ts`는 과거/보조용 목데이터 로직이며, 현재 메인 검색 흐름은 `app/page.tsx`의 실 API `fetch`를 사용합니다.
-- 메인 검색은 `/api/query/stream` SSE를 우선 사용하고, 스트림 네트워크/파싱 오류 시 `/api/query`로 1회 자동 폴백합니다.
+- 메인 검색은 `/api/query/start` + `/api/query/status` polling 오케스트레이션을 사용합니다.
 - 필터 `sort` 값은 현재 요청 payload에 포함되지 않으므로, 백엔드 정렬 요구사항과 함께 추후 확장하는 것이 좋습니다.
 
 ## 주요 파일

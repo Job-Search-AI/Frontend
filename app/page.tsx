@@ -12,14 +12,18 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { getStreamStepLabel, isStreamStep } from "@/lib/stream-steps";
 import { cn } from "@/lib/utils";
 import type {
+  AsyncJobStatus,
   FilterSlot,
   SearchApiResponse,
   SearchFilters,
+  SearchJobEnvelope,
   SearchResponseViewModel,
+  SearchStartResponse,
+  SearchStatusResponse,
   SearchStatus,
-  StreamStep,
   SlotChipGroup,
-  SortOption
+  SortOption,
+  StreamStep
 } from "@/types/search";
 
 const defaultFilters: SearchFilters = {
@@ -60,6 +64,17 @@ const slotChips: SlotChipGroup[] = [
   }
 ];
 
+const QUEUED_LABEL = "대기열 처리 중";
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+const POLL_INTERVAL_FAST_MS = 1_000;
+const POLL_INTERVAL_SLOW_MS = 2_000;
+const POLL_INTERVAL_SWITCH_MS = 30_000;
+const STATUS_ERROR_RETRY_LIMIT = 3;
+const DEFAULT_REQUEST_ERROR_MESSAGE = "검색 요청 처리에 실패했습니다.";
+const POLL_TIMEOUT_MESSAGE = "검색 처리 시간이 5분을 초과했습니다. 잠시 후 다시 시도해 주세요.";
+
+const ASYNC_JOB_STATUSES: AsyncJobStatus[] = ["queued", "running", "done", "failed"];
+
 const buildUserInput = (query: string, filters: SearchFilters) => {
   let userInput = query.trim();
   const values = [filters.region, filters.role, filters.experience, filters.education];
@@ -95,59 +110,74 @@ const toResponseViewModel = (data: SearchApiResponse): SearchResponseViewModel =
   };
 };
 
-const toFailedResponse = (userInput: string, message: string): SearchResponseViewModel => ({
-  status: "complete",
-  query: userInput,
-  message,
-  missing_fields: [],
-  normalized_entities: {
-    지역: null,
-    직무: null,
-    경력: null,
-    학력: null
-  },
-  retrieved_scores: [],
-  user_response: "",
-  jobs: []
-});
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
-interface ParsedSseEvent {
-  event: string;
-  data: string;
-}
+const isAsyncJobStatus = (value: unknown): value is AsyncJobStatus =>
+  typeof value === "string" && ASYNC_JOB_STATUSES.includes(value as AsyncJobStatus);
 
-const parseSseEventBlock = (rawBlock: string): ParsedSseEvent | null => {
-  const lines = rawBlock.split(/\r?\n/);
-  let event = "message";
-  const dataLines: string[] = [];
-
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\r$/, "");
-    if (!line || line.startsWith(":")) {
-      continue;
-    }
-
-    if (line.startsWith("event:")) {
-      event = line.slice(6).trim();
-      continue;
-    }
-
-    if (line.startsWith("data:")) {
-      dataLines.push(line.slice(5).trimStart());
-    }
-  }
-
-  if (dataLines.length === 0) {
+const parseJobEnvelope = (payload: unknown): SearchJobEnvelope | null => {
+  if (!isRecord(payload) || typeof payload.job_id !== "string" || payload.job_id.trim() === "" || !isAsyncJobStatus(payload.status)) {
     return null;
   }
 
   return {
-    event,
-    data: dataLines.join("\n")
+    job_id: payload.job_id,
+    status: payload.status,
+    step: typeof payload.step === "string" && isStreamStep(payload.step) ? payload.step : null,
+    step_label: typeof payload.step_label === "string" ? payload.step_label : null,
+    message: typeof payload.message === "string" ? payload.message : null,
+    result: isRecord(payload.result) ? (payload.result as unknown as SearchApiResponse) : null
   };
 };
 
-const createStreamError = (message: string, skipFallback: boolean) => Object.assign(new Error(message), { skipFallback });
+const parseErrorMessage = async (response: Response, fallbackMessage: string) => {
+  const contentType = response.headers.get("content-type") ?? "";
+  let rawBody = "";
+
+  try {
+    rawBody = await response.text();
+  } catch {
+    return fallbackMessage;
+  }
+
+  if (!rawBody.trim()) {
+    return fallbackMessage;
+  }
+
+  if (contentType.includes("application/json")) {
+    try {
+      const payload = JSON.parse(rawBody) as { message?: string };
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message.trim();
+      }
+    } catch {
+      // ignore and fallback
+    }
+  }
+
+  return rawBody.trim() || fallbackMessage;
+};
+
+const waitForNextPoll = (durationMs: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, durationMs);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 
 export default function HomePage() {
   const [query, setQuery] = useState("서울 AI 엔지니어 신입 대졸 채용공고 찾아줘");
@@ -191,9 +221,9 @@ export default function HomePage() {
     setResponse(null);
     setErrorMessage(null);
     setSelectedJobId(null);
-    setCurrentStep("analyzing");
-    setCurrentStepLabel(getStreamStepLabel("analyzing"));
-    setStepHistory(["analyzing"]);
+    setCurrentStep(null);
+    setCurrentStepLabel(QUEUED_LABEL);
+    setStepHistory([]);
 
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({
@@ -235,58 +265,34 @@ export default function HomePage() {
       setStatus("error");
     };
 
-    const fetchFallbackResult = async () => {
-      const result = await fetch("/api/query", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          user_input: userInput
-        }),
-        signal: abortController.signal
-      });
-
-      const data = (await result.json()) as SearchApiResponse | { message?: string };
-
-      if (!result.ok) {
-        const message = "message" in data && typeof data.message === "string" ? data.message : "검색 요청 처리에 실패했습니다.";
-        throw new Error(message);
-      }
-
-      return data as SearchApiResponse;
-    };
-
-    const parseStepEvent = (data: string) => {
-      const payload = JSON.parse(data) as { step?: string; label?: string };
-      if (!payload.step || !isStreamStep(payload.step)) {
-        return;
-      }
-      const nextStep = payload.step;
-
-      const nextLabel = payload.label?.trim() ? payload.label.trim() : getStreamStepLabel(nextStep);
+    const applyQueuedState = (message?: string | null) => {
       if (!isActiveRequest()) {
         return;
       }
-      setCurrentStep(nextStep);
-      setCurrentStepLabel(nextLabel);
-      setStepHistory((prev) => (prev.includes(nextStep) ? prev : [...prev, nextStep]));
+      setCurrentStep(null);
+      setCurrentStepLabel(message?.trim() ? message.trim() : QUEUED_LABEL);
     };
 
-    const parseErrorEvent = (data: string) => {
-      try {
-        const payload = JSON.parse(data) as { message?: string };
-        if (typeof payload.message === "string" && payload.message.trim()) {
-          return payload.message;
-        }
-      } catch {
-        return data || "스트리밍 처리 중 오류가 발생했습니다.";
+    const applyRunningState = (payload: SearchJobEnvelope) => {
+      if (!isActiveRequest()) {
+        return;
       }
-      return "스트리밍 처리 중 오류가 발생했습니다.";
+
+      const step = payload.step;
+      if (step) {
+        const label = payload.step_label?.trim() ? payload.step_label.trim() : getStreamStepLabel(step);
+        setCurrentStep(step);
+        setCurrentStepLabel(label);
+        setStepHistory((prev) => (prev.includes(step) ? prev : [...prev, step]));
+        return;
+      }
+
+      setCurrentStep(null);
+      setCurrentStepLabel(payload.step_label?.trim() ? payload.step_label.trim() : "검색 진행 중");
     };
 
-    const fetchStreamingResult = async () => {
-      const streamResponse = await fetch("/api/query/stream", {
+    const fetchJobStart = async (): Promise<SearchStartResponse> => {
+      const result = await fetch("/api/query/start", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -297,102 +303,125 @@ export default function HomePage() {
         signal: abortController.signal
       });
 
-      const contentType = streamResponse.headers.get("content-type") ?? "";
-      const isSseResponse = contentType.includes("text/event-stream");
-
-      if (!isSseResponse && !streamResponse.ok) {
-        const fallbackMessage = "스트리밍 검색 요청 처리에 실패했습니다.";
-        if (contentType.includes("application/json")) {
-          const payload = (await streamResponse.json()) as { message?: string };
-          throw new Error(payload.message ?? fallbackMessage);
-        }
-
-        const text = await streamResponse.text();
-        throw new Error(text || fallbackMessage);
+      if (!result.ok) {
+        throw new Error(await parseErrorMessage(result, DEFAULT_REQUEST_ERROR_MESSAGE));
       }
 
-      if (!isSseResponse) {
-        throw new Error("스트리밍 응답 형식이 올바르지 않습니다.");
+      const payload = parseJobEnvelope(await result.json());
+      if (!payload) {
+        throw new Error("검색 시작 응답 형식이 올바르지 않습니다.");
       }
 
-      if (!streamResponse.body) {
-        throw new Error("스트리밍 응답 본문이 비어 있습니다.");
+      return payload;
+    };
+
+    const fetchJobStatus = async (jobId: string): Promise<SearchStatusResponse> => {
+      const result = await fetch(`/api/query/status?job_id=${encodeURIComponent(jobId)}`, {
+        method: "GET",
+        signal: abortController.signal
+      });
+
+      if (!result.ok) {
+        throw new Error(await parseErrorMessage(result, DEFAULT_REQUEST_ERROR_MESSAGE));
       }
 
-      const reader = streamResponse.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const blocks = buffer.split(/\r?\n\r?\n/);
-        buffer = blocks.pop() ?? "";
-
-        for (const block of blocks) {
-          const event = parseSseEventBlock(block);
-          if (!event) {
-            continue;
-          }
-
-          if (event.event === "step") {
-            parseStepEvent(event.data);
-            continue;
-          }
-
-          if (event.event === "error") {
-            throw createStreamError(parseErrorEvent(event.data), true);
-          }
-
-          if (event.event === "final") {
-            return JSON.parse(event.data) as SearchApiResponse;
-          }
-        }
+      const payload = parseJobEnvelope(await result.json());
+      if (!payload) {
+        throw new Error("상태 조회 응답 형식이 올바르지 않습니다.");
       }
 
-      const trailing = parseSseEventBlock(buffer);
-      if (trailing?.event === "final") {
-        return JSON.parse(trailing.data) as SearchApiResponse;
-      }
-
-      throw new Error("스트림이 최종 결과 없이 종료되었습니다.");
+      return payload;
     };
 
     try {
-      const streamData = await fetchStreamingResult();
-      applyFinalResponse(streamData);
-    } catch (streamError) {
+      const startData = await fetchJobStart();
+
       if (abortController.signal.aborted || !isActiveRequest()) {
         return;
       }
 
-      const skipFallback =
-        typeof streamError === "object" &&
-        streamError !== null &&
-        "skipFallback" in streamError &&
-        Boolean((streamError as { skipFallback?: boolean }).skipFallback);
+      if (startData.status === "done") {
+        if (startData.result) {
+          applyFinalResponse(startData.result);
+          return;
+        }
 
-      if (skipFallback) {
-        const message = streamError instanceof Error ? streamError.message : "스트리밍 처리 중 오류가 발생했습니다.";
-        applyFailedResponse(message);
+        applyFailedResponse("완료된 작업의 최종 결과가 비어 있습니다.");
         return;
       }
 
-      try {
-        const fallbackData = await fetchFallbackResult();
-        applyFinalResponse(fallbackData);
-      } catch (fallbackError) {
+      if (startData.status === "failed") {
+        applyFailedResponse(startData.message?.trim() || DEFAULT_REQUEST_ERROR_MESSAGE);
+        return;
+      }
+
+      if (startData.status === "queued") {
+        applyQueuedState(startData.message);
+      } else {
+        applyRunningState(startData);
+      }
+
+      const pollStartAt = Date.now();
+      let consecutiveStatusErrors = 0;
+
+      while (isActiveRequest()) {
+        const elapsed = Date.now() - pollStartAt;
+        if (elapsed >= POLL_TIMEOUT_MS) {
+          throw new Error(POLL_TIMEOUT_MESSAGE);
+        }
+
+        const intervalMs = elapsed < POLL_INTERVAL_SWITCH_MS ? POLL_INTERVAL_FAST_MS : POLL_INTERVAL_SLOW_MS;
+        await waitForNextPoll(intervalMs, abortController.signal);
+
         if (abortController.signal.aborted || !isActiveRequest()) {
           return;
         }
 
-        const message = fallbackError instanceof Error ? fallbackError.message : "검색 요청 처리에 실패했습니다.";
-        applyFailedResponse(message);
+        let statusData: SearchStatusResponse;
+        try {
+          statusData = await fetchJobStatus(startData.job_id);
+          consecutiveStatusErrors = 0;
+        } catch (error) {
+          if (abortController.signal.aborted || !isActiveRequest()) {
+            return;
+          }
+
+          consecutiveStatusErrors += 1;
+          if (consecutiveStatusErrors < STATUS_ERROR_RETRY_LIMIT) {
+            continue;
+          }
+          throw error;
+        }
+
+        if (statusData.status === "done") {
+          if (statusData.result) {
+            applyFinalResponse(statusData.result);
+            return;
+          }
+
+          applyFailedResponse("완료된 작업의 최종 결과가 비어 있습니다.");
+          return;
+        }
+
+        if (statusData.status === "failed") {
+          applyFailedResponse(statusData.message?.trim() || DEFAULT_REQUEST_ERROR_MESSAGE);
+          return;
+        }
+
+        if (statusData.status === "queued") {
+          applyQueuedState(statusData.message);
+          continue;
+        }
+
+        applyRunningState(statusData);
       }
+    } catch (error) {
+      if (abortController.signal.aborted || !isActiveRequest()) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : DEFAULT_REQUEST_ERROR_MESSAGE;
+      applyFailedResponse(message);
     } finally {
       if (requestIdRef.current === requestId) {
         abortControllerRef.current = null;
