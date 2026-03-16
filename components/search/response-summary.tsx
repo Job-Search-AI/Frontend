@@ -34,6 +34,7 @@ export function ResponseSummary({
   const isLoading = status === "loading";
   const isIncomplete = status === "incomplete";
   const isError = status === "error";
+  const isIdle = status === "idle";
   const text = response ? normalizeMultilineText(response.user_response || response.message) : "";
   const activeLabel = currentStep ? getJobStepLabel(currentStep) : "처리 중";
   const resolvedLabel = currentStepLabel ?? activeLabel;
@@ -43,12 +44,20 @@ export function ResponseSummary({
     <Card
       className={cn(
         "mb-4 rounded-[1rem] border-white/70 bg-white/85 shadow-panel",
-        isError ? "border-warning/40" : isLoading ? "border-primary/20" : isIncomplete ? "border-warning/30" : "border-success/20"
+        isError
+          ? "border-warning/40"
+          : isLoading
+            ? "border-primary/20"
+            : isIncomplete
+              ? "border-warning/30"
+              : isIdle
+                ? "border-border/70"
+                : "border-success/20"
       )}
     >
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={isError || isLoading || isIncomplete ? "secondary" : "success"} className={cn(isError && "bg-warning/20 text-foreground")}>
+          <Badge variant={isError || isLoading || isIncomplete || isIdle ? "secondary" : "success"} className={cn(isError && "bg-warning/20 text-foreground")}>
             {isError ? (
               <>
                 <TriangleAlert className="mr-1.5 h-3.5 w-3.5" />
@@ -61,6 +70,8 @@ export function ResponseSummary({
                 <AlertCircle className="mr-1.5 h-3.5 w-3.5" />
                 정보 보완 필요
               </>
+            ) : isIdle ? (
+              "검색 대기 중"
             ) : (
               <>
                 <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
@@ -169,7 +180,7 @@ export function ResponseSummary({
 
         {status === "idle" && (
           <p className="text-sm text-muted-foreground">
-            검색을 실행하면 슬롯 정규화 결과와 AI 요약이 여기에 표시됩니다.
+            아직 AI 응답 내용이 없습니다. 상단에서 검색어를 입력하고 `검색 시작`을 눌러 주세요.
           </p>
         )}
       </CardContent>
