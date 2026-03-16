@@ -9,7 +9,7 @@ import { ResponseSummary } from "@/components/search/response-summary";
 import { SearchHero } from "@/components/search/search-hero";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { getStreamStepLabel, isStreamStep } from "@/lib/stream-steps";
+import { getJobStepLabel, isJobStep } from "@/lib/job-steps";
 import { cn } from "@/lib/utils";
 import type {
   AsyncJobStatus,
@@ -23,7 +23,7 @@ import type {
   SearchStatus,
   SlotChipGroup,
   SortOption,
-  StreamStep
+  JobStep
 } from "@/types/search";
 
 const defaultFilters: SearchFilters = {
@@ -123,7 +123,7 @@ const parseJobEnvelope = (payload: unknown): SearchJobEnvelope | null => {
   return {
     job_id: payload.job_id,
     status: payload.status,
-    step: typeof payload.step === "string" && isStreamStep(payload.step) ? payload.step : null,
+    step: typeof payload.step === "string" && isJobStep(payload.step) ? payload.step : null,
     step_label: typeof payload.step_label === "string" ? payload.step_label : null,
     message: typeof payload.message === "string" ? payload.message : null,
     result: isRecord(payload.result) ? (payload.result as unknown as SearchApiResponse) : null
@@ -185,9 +185,9 @@ export default function HomePage() {
   const [status, setStatus] = useState<SearchStatus>("idle");
   const [response, setResponse] = useState<SearchResponseViewModel | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [currentStep, setCurrentStep] = useState<StreamStep | null>(null);
+  const [currentStep, setCurrentStep] = useState<JobStep | null>(null);
   const [currentStepLabel, setCurrentStepLabel] = useState<string | null>(null);
-  const [stepHistory, setStepHistory] = useState<StreamStep[]>([]);
+  const [stepHistory, setStepHistory] = useState<JobStep[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
@@ -280,7 +280,7 @@ export default function HomePage() {
 
       const step = payload.step;
       if (step) {
-        const label = payload.step_label?.trim() ? payload.step_label.trim() : getStreamStepLabel(step);
+        const label = payload.step_label?.trim() ? payload.step_label.trim() : getJobStepLabel(step);
         setCurrentStep(step);
         setCurrentStepLabel(label);
         setStepHistory((prev) => (prev.includes(step) ? prev : [...prev, step]));

@@ -1,10 +1,10 @@
-import { STREAM_STEP_LABELS } from "@/lib/stream-steps";
+import { JOB_STEP_LABELS } from "@/lib/job-steps";
 import type {
   AsyncJobStatus,
   SearchApiResponse,
   SearchStatusResponse,
   SearchStartResponse,
-  StreamStep
+  JobStep
 } from "@/types/search";
 
 export type LocalQueryMockScenario = "complete" | "incomplete" | "failed" | "slow";
@@ -21,13 +21,8 @@ type LocalQueryJobStore = Map<string, LocalQueryJobState>;
 
 const LOCAL_QUERY_MOCK_SCENARIOS = new Set<LocalQueryMockScenario>(["complete", "incomplete", "failed", "slow"]);
 
-const LEGACY_SCENARIO_ALIASES: Record<string, LocalQueryMockScenario> = {
-  stream_error: "failed",
-  stream_disconnect: "slow"
-};
-
-const FAST_FLOW_STEPS: StreamStep[] = ["collecting", "parsing", "ranking", "writing"];
-const SLOW_FLOW_STEPS: StreamStep[] = ["analyzing", "collecting", "parsing", "ranking", "writing"];
+const FAST_FLOW_STEPS: JobStep[] = ["collecting", "parsing", "ranking", "writing"];
+const SLOW_FLOW_STEPS: JobStep[] = ["analyzing", "collecting", "parsing", "ranking", "writing"];
 const SLOW_SCENARIO_DONE_AFTER_CHECKS = 75;
 const QUEUED_CHECKS_FOR_SLOW_SCENARIO = 3;
 const LOCAL_JOB_STORE_TTL_MS = 10 * 60 * 1000;
@@ -41,10 +36,6 @@ const parseScenario = (value?: string | null): LocalQueryMockScenario => {
   }
 
   const normalized = value.trim();
-  if (normalized in LEGACY_SCENARIO_ALIASES) {
-    return LEGACY_SCENARIO_ALIASES[normalized];
-  }
-
   return LOCAL_QUERY_MOCK_SCENARIOS.has(normalized as LocalQueryMockScenario) ? (normalized as LocalQueryMockScenario) : "complete";
 };
 
@@ -169,12 +160,12 @@ const toFinalScenario = (scenario: LocalQueryMockScenario): "complete" | "incomp
   return scenario === "incomplete" ? "incomplete" : "complete";
 };
 
-const getFlowStep = (statusChecks: number, steps: StreamStep[]): StreamStep => {
+const getFlowStep = (statusChecks: number, steps: JobStep[]): JobStep => {
   const index = Math.min(Math.max(statusChecks - 1, 0), steps.length - 1);
   return steps[index];
 };
 
-const toStepLabel = (step: StreamStep): string => STREAM_STEP_LABELS[step];
+const toStepLabel = (step: JobStep): string => JOB_STEP_LABELS[step];
 
 declare global {
   // eslint-disable-next-line no-var
@@ -215,7 +206,7 @@ const createLocalJobId = () => {
   return `local-job-${Date.now()}-${randomPart}`;
 };
 
-const toRunningEnvelope = (jobId: string, step: StreamStep): SearchStatusResponse => {
+const toRunningEnvelope = (jobId: string, step: JobStep): SearchStatusResponse => {
   return {
     job_id: jobId,
     status: "running",

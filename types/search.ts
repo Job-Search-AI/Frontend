@@ -2,7 +2,7 @@ export type SortOption = "relevance" | "latest" | "deadline";
 export type SearchStatus = "idle" | "loading" | "complete" | "incomplete" | "empty" | "error";
 export type FilterSlot = "region" | "role" | "experience" | "education";
 export type AsyncJobStatus = "queued" | "running" | "done" | "failed";
-export type StreamStep = "analyzing" | "collecting" | "parsing" | "ranking" | "writing";
+export type JobStep = "analyzing" | "collecting" | "parsing" | "ranking" | "writing";
 
 export interface SearchFilters {
   region: string;
@@ -57,7 +57,7 @@ export interface SearchApiResponse {
 export interface SearchJobEnvelope {
   job_id: string;
   status: AsyncJobStatus;
-  step?: StreamStep | null;
+  step?: JobStep | null;
   step_label?: string | null;
   message?: string | null;
   result?: SearchApiResponse | null;
@@ -117,7 +117,7 @@ export interface ResponseSummaryProps {
   response: SearchResponseViewModel | null;
   errorMessage?: string;
   onRetry?: () => void;
-  currentStep: StreamStep | null;
+  currentStep: JobStep | null;
   currentStepLabel: string | null;
-  stepHistory: StreamStep[];
+  stepHistory: JobStep[];
 }

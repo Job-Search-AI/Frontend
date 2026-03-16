@@ -260,7 +260,7 @@ LOCAL_QUERY_MOCK_SCENARIO=complete
 - `SearchJobEnvelope`: 비동기 job 상태/결과 응답
 - `SearchResponseViewModel`: 화면 렌더링용 정규화 모델
 - `SearchStatus`: `idle | loading | complete | incomplete | empty | error`
-- `StreamStep`: `analyzing | collecting | parsing | ranking | writing`
+- `JobStep`: `analyzing | collecting | parsing | ranking | writing`
 - `SearchFilters`: 슬롯 필터 상태
 
 ## 프로젝트 구조
