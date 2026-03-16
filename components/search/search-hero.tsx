@@ -8,6 +8,7 @@ import { HeroIllustration } from "./hero-illustration";
 
 export function SearchHero({ query, filters, isLoading, loadingLabel, chips, onQueryChange, onSubmit, onChipSelect }: SearchHeroProps) {
   const buttonLabel = isLoading ? loadingLabel ?? "검색 중..." : "검색 시작";
+  const isSubmitDisabled = isLoading || !query.trim();
 
   return (
     <section className="animate-fade-up">
@@ -45,7 +46,7 @@ export function SearchHero({ query, filters, isLoading, loadingLabel, chips, onQ
                       }
                     }}
                   />
-                  <Button onClick={onSubmit} size="lg" className="h-12 rounded-lg px-5">
+                  <Button onClick={onSubmit} size="lg" className="h-12 rounded-lg px-5" disabled={isSubmitDisabled}>
                     <span className="max-w-[10rem] truncate" aria-live="polite">
                       {buttonLabel}
                     </span>
