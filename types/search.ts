@@ -1,7 +1,7 @@
 export type SortOption = "relevance" | "latest" | "deadline";
 export type SearchStatus = "idle" | "loading" | "complete" | "incomplete" | "empty" | "error";
 export type FilterSlot = "region" | "role" | "experience" | "education";
-export type StreamStep = "analyzing" | "need_more_info" | "collecting" | "parsing" | "ranking" | "writing";
+export type StreamStep = "analyzing" | "collecting" | "parsing" | "ranking" | "writing";
 
 export interface SearchFilters {
   region: string;

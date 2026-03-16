@@ -248,7 +248,7 @@ LOCAL_QUERY_MOCK_SCENARIO=complete
 - `SearchApiResponse`: 백엔드 응답 원형
 - `SearchResponseViewModel`: 화면 렌더링용 정규화 모델
 - `SearchStatus`: `idle | loading | complete | incomplete | empty`
-- `StreamStep`: `analyzing | need_more_info | collecting | parsing | ranking | writing`
+- `StreamStep`: `analyzing | collecting | parsing | ranking | writing`
 - `SearchFilters`: 슬롯 필터 상태
 
 ## 프로젝트 구조

@@ -203,7 +203,6 @@ export const createLocalQueryStreamResponse = (userInput: string, scenario: Loca
         }
 
         if (scenario === "incomplete") {
-          pushStep("need_more_info");
           await sleep(260);
           push("final", getLocalQueryFinalResponse(userInput, scenario));
           controller.close();
