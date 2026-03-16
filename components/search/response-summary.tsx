@@ -14,6 +14,14 @@ const SLOT_LABELS: Record<"지역" | "직무" | "경력" | "학력", string> = {
   학력: "학력"
 };
 
+const normalizeMultilineText = (value: string) =>
+  value
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n");
+
 export function ResponseSummary({
   status,
   response,
@@ -26,7 +34,7 @@ export function ResponseSummary({
   const isLoading = status === "loading";
   const isIncomplete = status === "incomplete";
   const isError = status === "error";
-  const text = response ? response.user_response || response.message : "";
+  const text = response ? normalizeMultilineText(response.user_response || response.message) : "";
   const activeLabel = currentStep ? getJobStepLabel(currentStep) : "처리 중";
   const resolvedLabel = currentStepLabel ?? activeLabel;
   const currentStepOrder = currentStep ? JOB_STEP_ORDER.indexOf(currentStep) + 1 : 0;
@@ -137,7 +145,7 @@ export function ResponseSummary({
 
         {status !== "loading" && !isError && response && (
           <>
-            <p className="leading-relaxed text-muted-foreground">{text || "응답이 없습니다."}</p>
+            <p className="whitespace-pre-line leading-relaxed text-muted-foreground">{text || "응답이 없습니다."}</p>
             <div className="flex flex-wrap gap-2">
               {(Object.entries(response.normalized_entities) as Array<[keyof typeof SLOT_LABELS, string | null]>).map(([slot, value]) => (
                 <Badge key={slot} variant={value ? "default" : "secondary"} className="bg-secondary/50 text-secondary-foreground">
