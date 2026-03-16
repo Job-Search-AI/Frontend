@@ -8,7 +8,7 @@ export function JobDetailPanel({ job }: JobDetailPanelProps) {
     return (
       <Card className="rounded-[1rem] border-dashed border-border bg-white/75">
         <CardContent className="flex min-h-[420px] items-center justify-center p-6 text-center">
-          <p className="text-sm text-muted-foreground">공고를 선택하면 상세 정보가 표시됩니다.</p>
+          <p className="text-sm text-muted-foreground">검색 결과에서 공고를 선택하면 상세 정보가 여기에 표시됩니다.</p>
         </CardContent>
       </Card>
     );

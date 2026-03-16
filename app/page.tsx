@@ -189,7 +189,6 @@ export default function HomePage() {
   const [currentStepLabel, setCurrentStepLabel] = useState<string | null>(null);
   const [stepHistory, setStepHistory] = useState<JobStep[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
@@ -216,7 +215,6 @@ export default function HomePage() {
     abortControllerRef.current = abortController;
     const isActiveRequest = () => requestIdRef.current === requestId && !abortController.signal.aborted;
 
-    setHasSearched(true);
     setStatus("loading");
     setResponse(null);
     setErrorMessage(null);
@@ -497,10 +495,7 @@ export default function HomePage() {
 
         <section
           ref={resultsRef}
-          className={cn(
-            "transition-all duration-700 ease-standard",
-            hasSearched ? "animate-fade-up opacity-100" : "pointer-events-none h-0 overflow-hidden opacity-0"
-          )}
+          className="animate-fade-up transition-all duration-700 ease-standard"
         >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>

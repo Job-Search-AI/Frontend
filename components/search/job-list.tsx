@@ -24,16 +24,16 @@ export function JobList({ jobs, selectedJobId, isLoading, onSelectJob }: JobList
 
   if (jobs.length === 0) {
     return (
-      <Card className="rounded-[1rem] border-dashed border-border bg-white/80">
-        <CardContent className="flex min-h-[280px] flex-col items-center justify-center gap-2 p-6 text-center">
-          <BriefcaseBusiness className="h-9 w-9 text-muted-foreground" />
-          <p className="text-sm font-semibold text-foreground">표시할 공고가 없습니다</p>
-          <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-            지역·경력·학력 조건을 완화하거나 검색어를 조정해 다시 시도해 보세요.
-          </p>
-        </CardContent>
-      </Card>
-    );
+        <Card className="rounded-[1rem] border-dashed border-border bg-white/80">
+          <CardContent className="flex min-h-[280px] flex-col items-center justify-center gap-2 p-6 text-center">
+            <BriefcaseBusiness className="h-9 w-9 text-muted-foreground" />
+            <p className="text-sm font-semibold text-foreground">아직 표시할 공고가 없습니다</p>
+            <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+              검색을 시작하면 조건에 맞는 공고가 여기에 표시됩니다. 결과가 없으면 검색어 또는 필터를 조정해 다시 시도해 주세요.
+            </p>
+          </CardContent>
+        </Card>
+      );
   }
 
   return (
