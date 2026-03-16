@@ -9,7 +9,7 @@ import { ResponseSummary } from "@/components/search/response-summary";
 import { SearchHero } from "@/components/search/search-hero";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { getJobStepLabel, isJobStep } from "@/lib/job-steps";
+import { JOB_STEP_ORDER, getJobStepLabel, isJobStep } from "@/lib/job-steps";
 import { cn } from "@/lib/utils";
 import type {
   AsyncJobStatus,
@@ -115,6 +115,18 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isAsyncJobStatus = (value: unknown): value is AsyncJobStatus =>
   typeof value === "string" && ASYNC_JOB_STATUSES.includes(value as AsyncJobStatus);
 
+const accumulateCompletedSteps = (previousSteps: JobStep[], currentStep: JobStep): JobStep[] => {
+  const currentStepIndex = JOB_STEP_ORDER.indexOf(currentStep);
+  if (currentStepIndex < 0) {
+    return previousSteps;
+  }
+
+  const completedSteps = JOB_STEP_ORDER.slice(0, currentStepIndex + 1);
+  const mergedSteps = new Set<JobStep>([...previousSteps, ...completedSteps]);
+
+  return JOB_STEP_ORDER.filter((step) => mergedSteps.has(step));
+};
+
 const parseJobEnvelope = (payload: unknown): SearchJobEnvelope | null => {
   if (!isRecord(payload) || typeof payload.job_id !== "string" || payload.job_id.trim() === "" || !isAsyncJobStatus(payload.status)) {
     return null;
@@ -189,7 +201,6 @@ export default function HomePage() {
   const [currentStepLabel, setCurrentStepLabel] = useState<string | null>(null);
   const [stepHistory, setStepHistory] = useState<JobStep[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
@@ -216,7 +227,6 @@ export default function HomePage() {
     abortControllerRef.current = abortController;
     const isActiveRequest = () => requestIdRef.current === requestId && !abortController.signal.aborted;
 
-    setHasSearched(true);
     setStatus("loading");
     setResponse(null);
     setErrorMessage(null);
@@ -283,7 +293,7 @@ export default function HomePage() {
         const label = payload.step_label?.trim() ? payload.step_label.trim() : getJobStepLabel(step);
         setCurrentStep(step);
         setCurrentStepLabel(label);
-        setStepHistory((prev) => (prev.includes(step) ? prev : [...prev, step]));
+        setStepHistory((prev) => accumulateCompletedSteps(prev, step));
         return;
       }
 
@@ -497,10 +507,7 @@ export default function HomePage() {
 
         <section
           ref={resultsRef}
-          className={cn(
-            "transition-all duration-700 ease-standard",
-            hasSearched ? "animate-fade-up opacity-100" : "pointer-events-none h-0 overflow-hidden opacity-0"
-          )}
+          className="animate-fade-up transition-all duration-700 ease-standard"
         >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
