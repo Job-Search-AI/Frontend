@@ -214,7 +214,32 @@ npm run start
 BACKEND_API_URL=https://your-api-domain.com
 ```
 
-`BACKEND_API_URL`은 필수입니다. 미설정 시 `/api/query/stream`, `/api/query` 요청이 모두 실패할 수 있습니다.
+`BACKEND_API_URL`은 실백엔드 연동(프로덕션/스테이징) 시 필수입니다. 개발 환경에서는 로컬 목 모드로 대체할 수 있습니다.
+
+백엔드 준비 전 프론트 단독 검증을 위해 개발용 로컬 목 모드도 지원합니다.
+
+```bash
+# 명시적 목 모드 활성화
+LOCAL_QUERY_MOCK=true
+
+# 시나리오 선택: complete | incomplete | stream_error | stream_disconnect
+LOCAL_QUERY_MOCK_SCENARIO=complete
+```
+
+동작 규칙:
+
+- `LOCAL_QUERY_MOCK=true`이면 `/api/query`, `/api/query/stream` 모두 로컬 목 데이터를 반환합니다.
+- `NODE_ENV=development`이고 `BACKEND_API_URL`이 비어 있으면 로컬 목 모드가 자동 활성화됩니다.
+- `stream_disconnect` 시나리오는 스트림이 `final` 없이 종료되어 프론트의 `/api/query` 1회 자동 폴백을 검증할 수 있습니다.
+- `stream_error` 시나리오는 SSE `error` 이벤트를 전송하며, 프론트는 폴백 없이 에러를 표시합니다.
+
+## 프론트 단독 검증 절차
+
+1. `.env.local` 없이 `npm run dev` 실행 또는 `LOCAL_QUERY_MOCK=true` 설정 후 실행
+2. 브라우저에서 검색 실행
+3. 로딩 중 단계 레일이 `step` 이벤트에 맞춰 업데이트되는지 확인
+4. `LOCAL_QUERY_MOCK_SCENARIO=stream_disconnect`로 재실행하여 `/api/query` 자동 폴백 렌더링 확인
+5. `LOCAL_QUERY_MOCK_SCENARIO=incomplete`로 재실행하여 `missing_fields` 및 보완 안내 표시 확인
 
 ## API 응답 타입(프론트 사용 기준)
 

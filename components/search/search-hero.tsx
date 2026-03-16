@@ -7,6 +7,8 @@ import type { SearchHeroProps } from "@/types/search";
 import { HeroIllustration } from "./hero-illustration";
 
 export function SearchHero({ query, filters, isLoading, loadingLabel, chips, onQueryChange, onSubmit, onChipSelect }: SearchHeroProps) {
+  const buttonLabel = isLoading ? loadingLabel ?? "검색 중..." : "검색 시작";
+
   return (
     <section className="animate-fade-up">
       <div className="glass-panel relative overflow-hidden rounded-[1.5rem] p-6 sm:p-9">
@@ -44,7 +46,9 @@ export function SearchHero({ query, filters, isLoading, loadingLabel, chips, onQ
                     }}
                   />
                   <Button onClick={onSubmit} size="lg" className="h-12 rounded-lg px-5">
-                    {isLoading ? loadingLabel ?? "검색 중..." : "검색 시작"}
+                    <span className="max-w-[10rem] truncate" aria-live="polite">
+                      {buttonLabel}
+                    </span>
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>

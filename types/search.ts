@@ -104,4 +104,5 @@ export interface ResponseSummaryProps {
   response: SearchResponseViewModel | null;
   currentStep: StreamStep | null;
   currentStepLabel: string | null;
+  stepHistory: StreamStep[];
 }

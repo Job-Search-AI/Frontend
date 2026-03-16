@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getLocalQueryFinalResponse, getLocalQueryMockScenario, shouldUseLocalQueryMock } from "@/lib/local-query-mock";
 
 interface QueryPayload {
   user_input: string;
@@ -22,7 +23,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "user_input is required." }, { status: 400 });
   }
 
+  const userInput = payload.user_input.trim();
   const backendApiUrl = process.env.BACKEND_API_URL;
+
+  if (shouldUseLocalQueryMock(backendApiUrl)) {
+    const scenario = getLocalQueryMockScenario();
+    return NextResponse.json(getLocalQueryFinalResponse(userInput, scenario));
+  }
+
   if (!backendApiUrl) {
     return NextResponse.json({ message: "BACKEND_API_URL is not configured." }, { status: 500 });
   }
@@ -35,7 +43,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        user_input: payload.user_input.trim()
+        user_input: userInput
       }),
       cache: "no-store"
     });

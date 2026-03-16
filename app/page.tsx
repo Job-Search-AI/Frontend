@@ -9,6 +9,7 @@ import { ResponseSummary } from "@/components/search/response-summary";
 import { SearchHero } from "@/components/search/search-hero";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { getStreamStepLabel, isStreamStep } from "@/lib/stream-steps";
 import { cn } from "@/lib/utils";
 import type {
   FilterSlot,
@@ -58,19 +59,6 @@ const slotChips: SlotChipGroup[] = [
     options: ["고등학교졸업이상", "대학졸업(4년) 이상", "학력무관"]
   }
 ];
-
-const STREAM_STEP_VALUES: StreamStep[] = ["analyzing", "need_more_info", "collecting", "parsing", "ranking", "writing"];
-
-const STREAM_STEP_LABELS: Record<StreamStep, string> = {
-  analyzing: "질문 분석 중",
-  need_more_info: "추가 정보 확인 중",
-  collecting: "공고 수집 중",
-  parsing: "공고 분석 중",
-  ranking: "맞춤 공고 선별 중",
-  writing: "답변 작성 중"
-};
-
-const isStreamStep = (value: string): value is StreamStep => STREAM_STEP_VALUES.includes(value as StreamStep);
 
 const buildUserInput = (query: string, filters: SearchFilters) => {
   let userInput = query.trim();
@@ -168,6 +156,7 @@ export default function HomePage() {
   const [response, setResponse] = useState<SearchResponseViewModel | null>(null);
   const [currentStep, setCurrentStep] = useState<StreamStep | null>(null);
   const [currentStepLabel, setCurrentStepLabel] = useState<string | null>(null);
+  const [stepHistory, setStepHistory] = useState<StreamStep[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
@@ -200,7 +189,8 @@ export default function HomePage() {
     setResponse(null);
     setSelectedJobId(null);
     setCurrentStep("analyzing");
-    setCurrentStepLabel(STREAM_STEP_LABELS.analyzing);
+    setCurrentStepLabel(getStreamStepLabel("analyzing"));
+    setStepHistory(["analyzing"]);
 
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({
@@ -220,6 +210,7 @@ export default function HomePage() {
       setSelectedJobId(nextResponse.jobs[0]?.id ?? null);
       setCurrentStep(null);
       setCurrentStepLabel(null);
+      setStepHistory([]);
       if (nextResponse.status === "incomplete") {
         setStatus("incomplete");
         return;
@@ -235,6 +226,7 @@ export default function HomePage() {
       setSelectedJobId(null);
       setCurrentStep(null);
       setCurrentStepLabel(null);
+      setStepHistory([]);
       setStatus("empty");
     };
 
@@ -265,13 +257,15 @@ export default function HomePage() {
       if (!payload.step || !isStreamStep(payload.step)) {
         return;
       }
+      const nextStep = payload.step;
 
-      const nextLabel = payload.label?.trim() ? payload.label.trim() : STREAM_STEP_LABELS[payload.step];
+      const nextLabel = payload.label?.trim() ? payload.label.trim() : getStreamStepLabel(nextStep);
       if (!isActiveRequest()) {
         return;
       }
-      setCurrentStep(payload.step);
+      setCurrentStep(nextStep);
       setCurrentStepLabel(nextLabel);
+      setStepHistory((prev) => (prev.includes(nextStep) ? prev : [...prev, nextStep]));
     };
 
     const parseErrorEvent = (data: string) => {
@@ -533,7 +527,13 @@ export default function HomePage() {
             </aside>
 
             <div className="min-w-0">
-              <ResponseSummary status={status} response={response} currentStep={currentStep} currentStepLabel={currentStepLabel} />
+              <ResponseSummary
+                status={status}
+                response={response}
+                currentStep={currentStep}
+                currentStepLabel={currentStepLabel}
+                stepHistory={stepHistory}
+              />
 
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-white/70 px-4 py-2.5 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">

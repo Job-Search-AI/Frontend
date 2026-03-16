@@ -1,6 +1,8 @@
 import { AlertCircle, CheckCircle2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { STREAM_STEP_ORDER, getStreamStepLabel } from "@/lib/stream-steps";
 import { cn } from "@/lib/utils";
 import type { ResponseSummaryProps } from "@/types/search";
 
@@ -11,10 +13,13 @@ const SLOT_LABELS: Record<"지역" | "직무" | "경력" | "학력", string> = {
   학력: "학력"
 };
 
-export function ResponseSummary({ status, response, currentStep, currentStepLabel }: ResponseSummaryProps) {
+export function ResponseSummary({ status, response, currentStep, currentStepLabel, stepHistory }: ResponseSummaryProps) {
   const isLoading = status === "loading";
   const isIncomplete = status === "incomplete";
   const text = response ? response.user_response || response.message : "";
+  const activeLabel = currentStep ? getStreamStepLabel(currentStep) : "처리 중";
+  const resolvedLabel = currentStepLabel ?? activeLabel;
+  const currentStepOrder = currentStep ? STREAM_STEP_ORDER.indexOf(currentStep) + 1 : 1;
 
   return (
     <Card
@@ -45,13 +50,58 @@ export function ResponseSummary({ status, response, currentStep, currentStepLabe
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {status === "loading" && (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              현재 단계: {currentStepLabel ?? (currentStep ? currentStep : "처리 중")}
-            </p>
-            <div className="h-4 w-2/3 rounded bg-muted" />
-            <div className="h-4 w-full rounded bg-muted" />
-            <div className="h-4 w-5/6 rounded bg-muted" />
+          <div className="space-y-3">
+            <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-muted-foreground">현재 단계: {resolvedLabel}</p>
+                <Badge variant="secondary" className="bg-white/80 text-primary">
+                  {currentStepOrder} / {STREAM_STEP_ORDER.length}
+                </Badge>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                {STREAM_STEP_ORDER.map((step) => {
+                  const isDone = step !== currentStep && stepHistory.includes(step);
+                  const isActive = step === currentStep;
+
+                  return (
+                    <div
+                      key={step}
+                      className={cn(
+                        "rounded-md border px-2.5 py-2 transition",
+                        isActive
+                          ? "border-primary/40 bg-white shadow-panel"
+                          : isDone
+                            ? "border-success/25 bg-success/10"
+                            : "border-border/70 bg-white/70"
+                      )}
+                    >
+                      <p
+                        className={cn(
+                          "inline-flex items-center gap-1.5 text-[11px] font-medium",
+                          isActive ? "text-primary" : isDone ? "text-success" : "text-muted-foreground"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            isActive ? "bg-primary animate-pulse" : isDone ? "bg-success" : "bg-muted-foreground/50"
+                          )}
+                        />
+                        {getStreamStepLabel(step)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="h-4 w-2/3 rounded bg-muted" />
+              <div className="h-4 w-full rounded bg-muted" />
+              <div className="h-4 w-5/6 rounded bg-muted" />
+            </div>
           </div>
         )}
 
