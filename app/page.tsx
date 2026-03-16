@@ -578,7 +578,7 @@ export default function HomePage() {
                 stepHistory={stepHistory}
               />
 
-              {!isError && status !== "idle" && (
+              {!isError && (
                 <>
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-white/70 px-4 py-2.5 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
@@ -600,7 +600,7 @@ export default function HomePage() {
               )}
             </div>
 
-            {!isError && status !== "idle" && (
+            {!isError && (
               <aside className="hidden xl:block">
                 <JobDetailPanel job={selectedJob} />
               </aside>
