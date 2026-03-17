@@ -152,10 +152,46 @@ const buildCompleteResponse = (userInput: string): SearchApiResponse => {
 
 근무조건:
 - 수평적인 코드 리뷰 문화
-- 야근 최소화 원칙, 탄력 근무제 운영`
+- 야근 최소화 원칙, 탄력 근무제 운영`,
+    `[D사] 서울 여의도 | 데이터/검색 백엔드 엔지니어(주니어) | 정규직
+주요업무:
+- 채용공고 수집 파이프라인의 품질 모니터링 및 장애 대응
+- OpenSearch 인덱스 구조 개선과 검색 응답 지연 최적화
+- 사용자 행동 로그 기반 추천 피처 생성 및 배치 운영
+
+자격요건:
+- Python, SQL 기반 서비스/데이터 처리 경험
+- 비동기 처리, 캐싱, API 성능 개선 경험
+- 협업 도구를 활용한 이슈 관리 및 문서화 역량
+
+우대사항:
+- 대용량 로그 처리(Spark, BigQuery 등) 경험
+- 검색 품질 개선 실험 및 지표 분석 경험
+
+근무조건:
+- 시차 출퇴근제, 점심 식대 지원
+- 분기별 기술 세미나 및 사내 스터디 운영`,
+    `[E사] 서울 성수 | AI 서비스 백엔드 엔지니어(신입) | 정규직
+주요업무:
+- LLM 기반 공고 요약/정규화 API 개발 및 운영
+- 프롬프트 템플릿 개선과 응답 안정성 검증 자동화
+- 백엔드 운영지표 기반 병목 분석 및 개선
+
+자격요건:
+- 백엔드 프레임워크 기반 API 구현 경험
+- HTTP, 인증, 데이터베이스 트랜잭션 이해
+- 장애 발생 시 원인 파악 및 재발 방지 문서화 능력
+
+우대사항:
+- OpenAI/LLM API 연동 경험
+- 테스트 코드 작성 및 CI 파이프라인 운영 경험
+
+근무조건:
+- 수습 3개월 후 성과 기반 인센티브
+- 장비/교육비 및 도서 구매 지원`
   ];
 
-  const retrievedScores = [0.91, 0.86, 0.79];
+  const retrievedScores = [0.94, 0.91, 0.86, 0.83, 0.79];
 
   return {
     user_input: userInput,
@@ -175,7 +211,7 @@ const buildCompleteResponse = (userInput: string): SearchApiResponse => {
     retrieved_job_info_list: retrievedJobInfoList,
     retrieved_scores: retrievedScores,
     user_response:
-      "요청 조건과 유사도가 높은 공고 3건을 선별했습니다. 서울권 신입 포지션이 우선 매칭되며, FastAPI·검색/랭킹·MLOps 연관 키워드를 포함한 공고가 상위에 배치되었습니다."
+      "요청 조건과 유사도가 높은 공고 5건을 선별했습니다. 서울권 신입 포지션이 우선 매칭되며, FastAPI·검색/랭킹·MLOps 연관 키워드를 포함한 공고가 상위에 배치되었습니다."
   };
 };
 

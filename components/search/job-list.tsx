@@ -39,7 +39,7 @@ export function JobList({ jobs, selectedJobId, isLoading, onSelectJob }: JobList
   return (
     <Card className="rounded-[1rem] border-white/70 bg-white/90">
       <CardContent className="p-0">
-        <ScrollArea className="h-[580px]">
+        <ScrollArea className="h-auto lg:h-[580px]">
           <div className="space-y-3 p-4">
             {jobs.map((job) => (
               <button
