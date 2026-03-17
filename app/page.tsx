@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Filter, LayoutPanelTop, ListFilter, PanelBottomOpen } from "lucide-react";
+import { Filter, LayoutPanelTop, ListFilter } from "lucide-react";
 import { FilterSidebar } from "@/components/search/filter-sidebar";
 import { JobDetailPanel } from "@/components/search/job-detail-panel";
 import { JobList } from "@/components/search/job-list";
@@ -10,7 +10,6 @@ import { SearchHero } from "@/components/search/search-hero";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { JOB_STEP_ORDER, getJobStepLabel, isJobStep } from "@/lib/job-steps";
-import { cn } from "@/lib/utils";
 import type {
   AsyncJobStatus,
   FilterSlot,
@@ -479,6 +478,14 @@ export default function HomePage() {
     setFilters(defaultFilters);
   };
 
+  const handleSelectJob = (jobId: string) => {
+    setSelectedJobId(jobId);
+
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      setDetailSheetOpen(true);
+    }
+  };
+
   useEffect(() => {
     if (!selectedJob && detailSheetOpen) {
       setDetailSheetOpen(false);
@@ -537,22 +544,6 @@ export default function HomePage() {
                   />
                 </SheetContent>
               </Sheet>
-
-              <Sheet open={detailSheetOpen} onOpenChange={setDetailSheetOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="outline" size="sm" className="bg-white" disabled={!selectedJob}>
-                    <PanelBottomOpen className="mr-1.5 h-3.5 w-3.5" />
-                    상세 패널
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="bottom" className="max-h-[88vh] overflow-y-auto bg-[#f6fbff] px-4">
-                  <SheetHeader>
-                    <SheetTitle>공고 상세 패널</SheetTitle>
-                    <SheetDescription>선택한 채용공고의 상세 정보를 확인하세요.</SheetDescription>
-                  </SheetHeader>
-                  <JobDetailPanel job={selectedJob} />
-                </SheetContent>
-              </Sheet>
             </div>
           </div>
 
@@ -591,7 +582,17 @@ export default function HomePage() {
                     </span>
                   </div>
 
-                  <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={setSelectedJobId} isLoading={status === "loading"} />
+                  <JobList jobs={jobs} selectedJobId={selectedJobId} onSelectJob={handleSelectJob} isLoading={status === "loading"} />
+
+                  <Sheet open={detailSheetOpen} onOpenChange={setDetailSheetOpen}>
+                    <SheetContent side="bottom" className="inset-x-0 top-0 h-[100dvh] max-h-none w-full max-w-none overflow-y-auto rounded-none border-0 bg-[#f6fbff] px-4 pb-6 pt-8 lg:hidden">
+                      <SheetHeader>
+                        <SheetTitle>공고 상세</SheetTitle>
+                        <SheetDescription>선택한 채용공고의 상세 정보를 확인하세요.</SheetDescription>
+                      </SheetHeader>
+                      <JobDetailPanel job={selectedJob} />
+                    </SheetContent>
+                  </Sheet>
 
                   <div className="mt-4 hidden xl:hidden lg:block">
                     <JobDetailPanel job={selectedJob} />
