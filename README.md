@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./public/readme/job-search-search-flow-desktop.gif" alt="데스크톱 검색 데모" width="1100" />
+</p>
+
 # AI 채용공고 검색 서비스 프론트엔드
 
 자연어 질의와 슬롯 기반 조건(지역/직무/경력/학력)을 결합해 채용공고를 검색하고, AI 응답 결과를 구조화해서 보여주는 Next.js 프론트엔드입니다.
